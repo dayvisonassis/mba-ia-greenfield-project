@@ -14,6 +14,8 @@ const MANAGED_TABLES = [
   'verification_tokens',
 ];
 
+const MANAGED_ENUM_TYPES = ['verification_tokens_type_enum'];
+
 describe('Database migrations (integration)', () => {
   let dataSource: DataSource;
 
@@ -36,14 +38,25 @@ describe('Database migrations (integration)', () => {
         dataSource.query(`DROP TABLE IF EXISTS "${table}" CASCADE`),
       ),
       dataSource.query(`DROP TABLE IF EXISTS "migrations" CASCADE`),
+      // A Postgres enum type is an independent object: DROP TABLE ... CASCADE
+      // does not remove it. Left behind, it makes the next run's CREATE TYPE
+      // fail with "already exists" — so this suite must drop it explicitly.
+      ...MANAGED_ENUM_TYPES.map((enumType) =>
+        dataSource.query(`DROP TYPE IF EXISTS "public"."${enumType}" CASCADE`),
+      ),
     ]);
   });
 
   afterAll(async () => {
-    // The second test undoes the last migration, leaving token tables missing.
-    // Re-apply so the shared DB is fully migrated when subsequent suites run.
-    await dataSource.runMigrations();
-    await dataSource.destroy();
+    try {
+      // The second test undoes the last migration, leaving token tables missing.
+      // Re-apply so the shared DB is fully migrated when subsequent suites run.
+      await dataSource.runMigrations();
+    } finally {
+      // destroy() must run even if re-applying fails, otherwise the open pg
+      // connection keeps the event loop alive and Jest never exits.
+      await dataSource.destroy();
+    }
   });
 
   it('should apply all migrations and create all four tables', async () => {

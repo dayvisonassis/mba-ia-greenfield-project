@@ -4,6 +4,11 @@ RUN apt update && apt install -y procps curl
 
 WORKDIR /home/node/app
 
+# node_modules is a named volume (see compose.yaml). Docker seeds a fresh named
+# volume from the image path, so the directory must already exist here owned by
+# `node` — otherwise the volume is created as root and npm install fails EACCES.
+RUN mkdir -p /home/node/app/node_modules && chown -R node:node /home/node/app
+
 USER node
 
 CMD [ "tail", "-f", "/dev/null" ] 

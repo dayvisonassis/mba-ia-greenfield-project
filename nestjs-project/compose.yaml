@@ -7,6 +7,13 @@ services:
       - 3000:3000
     volumes:
       - .:/home/node/app
+      # node_modules lives in a named volume, NOT in the bind mount. Reading it
+      # through the Windows bind mount costs ~12s just to require @nestjs/core
+      # (vs ~230ms from the container filesystem), which made every Jest run
+      # take ~25s per file regardless of the transform.
+      # Trade-off: node_modules is not visible on the host, so every npm/npx
+      # command must run inside the container (already the project rule).
+      - nestjs_node_modules:/home/node/app/node_modules
     depends_on:
       db:
         condition: service_healthy
@@ -32,5 +39,8 @@ services:
     ports:
       - "1025:1025"
       - "8025:8025"
+
+volumes:
+  nestjs_node_modules:
 
 
