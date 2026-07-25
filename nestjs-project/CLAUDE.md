@@ -33,7 +33,12 @@ docker compose exec nestjs-api npm run start:dev
 
 Services:
 - `nestjs-api` — NestJS API, port `3000`
-- `db` — PostgreSQL 17, port `5432`, database `streamtube`, user/password `streamtube`
+- `db` — PostgreSQL 17, port `5432`, databases `streamtube` (dev) and `streamtube_test` (tests), user/password `streamtube`
+
+**`node_modules` is a named volume, not part of the bind mount.** Reading it through the Windows bind mount costs ~12s just to `require('@nestjs/core')` (vs ~200ms from the container filesystem), which made every Jest file take ~25s. Two consequences:
+
+- `node_modules` is **not visible on the host** — every `npm`/`npx` command must run inside the container (already the rule below).
+- After changing `package.json`, run `docker compose exec nestjs-api npm install` to update the volume. `docker compose down -v` wipes it and requires a reinstall.
 
 All verification and teardown commands run on the **host machine**:
 
@@ -119,10 +124,24 @@ Conventions for **how to write** each kind of test (mocking patterns, AAA struct
 
 These settings are required in `package.json` (jest config) and `test/jest-e2e.json` for the project's tests to work correctly:
 
-- `setupFiles: ["dotenv/config"]` — without this, `.env` is not loaded inside the Jest process. `DB_HOST`, `JWT_SECRET`, etc. fall back to undefined or to the host's `localhost`, breaking container-to-container DNS.
+- `setupFiles: ["dotenv/config"]` — without this, the env file is not loaded inside the Jest process. `DB_HOST`, `JWT_SECRET`, etc. fall back to undefined or to the host's `localhost`, breaking container-to-container DNS.
 - `testRegex: '.*\\.(spec|integration-spec)\\.ts$'` — covers both unit (`*.spec.ts`) and integration (`*.integration-spec.ts`) suffixes.
+- `globalSetup: test/global-setup.ts` — creates and migrates the test database before any suite runs.
 
 Do not add new test-file suffixes; if a new test type is needed, update the regex deliberately.
+
+## Test Database
+
+Tests never touch the development database. Every `test*` script sets `DOTENV_CONFIG_PATH=.env.test`, which points `DB_NAME` at **`streamtube_test`** — a separate database on the same `db` service.
+
+`test/global-setup.ts` creates that database if missing and runs the migrations, so a single file (`npx jest path/to/file`) is as safe as the full suite. It must stay in `globalSetup` of **both** jest configs.
+
+Why this exists: `migrations.integration-spec.ts` drops every managed table, so pointing the suite at the dev database wipes local data mid-run.
+
+Two constraints when writing DB tests:
+
+- **Drop enum types explicitly.** A Postgres enum is an independent object — `DROP TABLE ... CASCADE` leaves it behind, and the next run fails with `type "..." already exists`. See `MANAGED_ENUM_TYPES` in `migrations.integration-spec.ts`.
+- **Always `destroy()` in a `finally`.** A DataSource left open keeps the event loop alive and Jest never exits. The `--forceExit` on the test scripts is a safety net, not a substitute.
 
 ## Environment File Conventions
 
