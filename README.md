@@ -77,9 +77,11 @@ Serviços disponíveis:
 | Serviço | URL / Porta |
 |---------|-------------|
 | API NestJS | http://localhost:3000 |
-| PostgreSQL | `localhost:5432` (db/user/senha: `streamtube`) |
+| PostgreSQL | `localhost:5432` (user/senha: `streamtube`; bancos `streamtube` e `streamtube_test`) |
 | Mailpit (UI de e-mails) | http://localhost:8025 |
 | Swagger (opcional) | http://localhost:3000/api/docs — habilite com `SWAGGER_ENABLED=true` |
+
+> O `node_modules` do backend vive em um **volume Docker nomeado**, não no bind mount — lê-lo através do bind mount no Windows custava ~12s só para `require('@nestjs/core')`. Consequência prática: ele não é visível no host, e todo `npm`/`npx` roda dentro do container. Depois de alterar o `package.json`, rode `docker compose exec nestjs-api npm install` para atualizar o volume.
 
 ### 2. Frontend (Next.js)
 
@@ -98,6 +100,18 @@ A aplicação ficará disponível em **http://localhost:3001**.
 
 > As stacks são separadas, então o frontend acessa o backend via `host.docker.internal:3000` (configurado em `next-frontend/.env.local` e no `extra_hosts` do compose).
 
+## ✅ Quality Gates
+
+Os checks determinísticos por trás da Definition of Done rodam por um único ponto de entrada:
+
+```bash
+node scripts/run-gate.mjs              # typecheck + lint + testes, nos dois subprojetos
+node scripts/run-gate.mjs backend      # só o backend
+node scripts/run-gate.mjs --with-e2e   # inclui o e2e do backend
+```
+
+Roda do mais barato ao mais caro e para no primeiro erro. Detalhes em [GATES.md](./GATES.md).
+
 ## 🧪 Testes
 
 ### Backend (Jest)
@@ -110,6 +124,8 @@ docker compose exec nestjs-api npm run test:cov       # cobertura
 ```
 
 Sufixos: `*.spec.ts` (unitário), `*.integration-spec.ts` (integração com banco real), `*.e2e-spec.ts` (end-to-end). Testes de integração/e2e rodam com `--runInBand`.
+
+Os testes **nunca tocam o banco de desenvolvimento**: os scripts apontam para `streamtube_test` via `.env.test`, e o `test/global-setup.ts` cria e migra esse banco automaticamente antes da suíte.
 
 ### Frontend (Vitest + Playwright)
 

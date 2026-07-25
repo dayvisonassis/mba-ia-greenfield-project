@@ -94,6 +94,6 @@ describe('MailService (integration)', () => {
       process.env.MAIL_FROM ?? '"StreamTube" <noreply@streamtube.com>';
     const expectedAddress =
       configuredFrom.match(/<(.+)>/)?.[1] ?? configuredFrom;
-    expect(messages[0].From.Address).toBe(expectedAddress);
+    expect(messages[0].From?.Address).toBe(expectedAddress);
   });
 });

@@ -1,12 +1,17 @@
-import { DataSource, EntitySchema, MigrationInterface } from 'typeorm';
+import { DataSource, MigrationInterface } from 'typeorm';
+import type { DataSourceOptions } from 'typeorm';
 
 interface TestDataSourceOptions {
   synchronize?: boolean;
   migrations?: (new () => MigrationInterface)[];
 }
 
+// Reuses TypeORM's own entity type instead of a bare `Function`, which ESLint
+// rejects for accepting any function-like value.
+type TestEntities = DataSourceOptions['entities'];
+
 export function createTestDataSource(
-  entities: (Function | string | EntitySchema<any>)[],
+  entities: TestEntities,
   options: TestDataSourceOptions = {},
 ): DataSource {
   const { synchronize = true, migrations } = options;

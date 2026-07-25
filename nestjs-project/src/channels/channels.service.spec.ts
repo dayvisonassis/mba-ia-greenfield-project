@@ -1,8 +1,16 @@
-import { QueryFailedError } from 'typeorm';
+import { DataSource, EntityManager, QueryFailedError } from 'typeorm';
 import { ChannelsService } from './channels.service';
 import { Channel } from './entities/channel.entity';
 
-function makeManager(overrides: Record<string, jest.Mock> = {}): any {
+// Only the EntityManager methods ChannelsService actually calls. Typed so a
+// renamed call site fails `tsc --noEmit` instead of silently mocking nothing.
+type MockManager = Record<string, jest.Mock> & {
+  findOne: jest.Mock;
+  create: jest.Mock;
+  save: jest.Mock;
+};
+
+function makeManager(overrides: Record<string, jest.Mock> = {}): MockManager {
   return {
     findOne: jest.fn(),
     create: jest.fn(),
@@ -24,16 +32,24 @@ function makeChannel(nickname: string): Channel {
 }
 
 function makeUniqueError(): QueryFailedError {
-  const err = new QueryFailedError('INSERT', [], new Error()) as any;
+  // `code` is the pg SQLSTATE as a string ('23505'), matching the production
+  // check in channels.service.ts — never a number.
+  const err = new QueryFailedError(
+    'INSERT',
+    [],
+    new Error(),
+  ) as QueryFailedError & { code: string; detail: string };
   err.code = '23505';
   err.detail = 'Key (nickname)=(abc) already exists.';
   return err;
 }
 
-function makeDataSource(manager: any): any {
+function makeDataSource(manager: MockManager): DataSource {
   return {
-    transaction: jest.fn((cb: (manager: any) => Promise<any>) => cb(manager)),
-  };
+    transaction: jest.fn((cb: (manager: EntityManager) => Promise<unknown>) =>
+      cb(manager as unknown as EntityManager),
+    ),
+  } as unknown as DataSource;
 }
 
 describe('ChannelsService', () => {
