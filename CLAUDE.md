@@ -56,6 +56,22 @@ A change is only considered complete when **all** of the following pass:
 
 If any of these fails, the task is not done — fix the underlying issue before declaring completion.
 
+### Run it, don't eyeball it
+
+These four checks are executable as **quality gates** — this is the canonical way to verify the Definition of Done:
+
+```bash
+node scripts/run-gate.mjs <subproject>   # while closing each step (backend | frontend)
+node scripts/run-gate.mjs                # before declaring a task or phase done
+node scripts/run-gate.mjs --with-e2e     # adds the backend e2e gate
+```
+
+Gates run cheapest-first inside their containers, stop at the first failure, and exit non-zero. Ids and scoping are documented in [GATES.md](GATES.md); the `gate-builder` skill maintains them.
+
+**Never declare a task done without having executed the gate.** Checking by hand is how the lint gate rotted to 150 errors while the Definition of Done above claimed it was required.
+
+**Never modify application code just to make a gate pass.** A red gate is a finding to report, not something to silence.
+
 
 ## Git Conventions
 

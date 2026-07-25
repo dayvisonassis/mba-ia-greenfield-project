@@ -735,6 +735,10 @@ SI-NN.4 (root, independent)
 - [ ] E2E tests pass (`cd {backend-subproject} && {e2e-cmd}`)
 - [ ] Type/compilation checks pass (`cd {subproject} && {build-cmd}`) — run per-subproject in scope.
 - [ ] Frontend tests pass (`cd {frontend-subproject} && {test-cmd}`) _(when ui_in_scope: true)_
+
+**Quality gates** _(the executable form of the Definition of Done — see `GATES.md`)_:
+
+- [ ] Quality gates pass (`node scripts/run-gate.mjs`) — run from the repo root, after the per-subproject checks above.
 ````
 
 Placeholder resolution at emit time:
@@ -743,3 +747,7 @@ Placeholder resolution at emit time:
 - `{test-cmd}` / `{e2e-cmd}` / `{build-cmd}` come from each subproject's stack — read its dependency manifest's scripts/tasks (e.g., `package.json` scripts for Node → `npm test` / `npm run test:e2e` / `npm run build`; `pyproject.toml`/`pytest.ini` for Python → `pytest` / `pytest -m e2e` / `python -m build`; `go.mod` for Go → `go test ./...` / `go test -tags e2e ./...` / `go build ./...`; etc.). Each subproject in scope may have a different command set. If the manifest declares no script for a given role, ask the user for the correct command.
 
 When the phase spans multiple subprojects, repeat the relevant lines per subproject with subproject-specific commands. Skip lines that don't apply (e.g., no E2E command available, type-check and build are the same command, etc.). Emit `- [ ] Project builds successfully (<full build command>)` only when the build command is distinct from type-check (e.g., produces artifacts beyond type validation); otherwise omit to avoid duplication with Type/compilation checks.
+
+The **Quality gates** line is emitted whenever `scripts/run-gate.mjs` exists at the repo root, and is what makes the Definition of Done verifiable rather than asserted — notably `lint`, which no other Deliverables line covers. Keep it as the **last** entry: the gates re-run the cheap checks anyway, so a failure there after the per-subproject lines have passed points at something the narrower commands do not see. Omit the line only when the script is absent; never replace it with the individual commands.
+
+When a phase introduces a **new subproject** (a worker, a service), its gate ids must be wired into `scripts/run-gate.mjs` as part of that phase's work — add an SI for it, and use the `gate-builder` skill rather than hand-editing the orchestrator.
