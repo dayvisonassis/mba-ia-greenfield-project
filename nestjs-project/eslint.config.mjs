@@ -32,4 +32,20 @@ export default tseslint.config(
       "prettier/prettier": ["error", { endOfLine: "auto" }],
     },
   },
+  {
+    // `unbound-method` is a known false positive on Jest assertions: passing a
+    // mocked method reference to `expect(...)` is the idiomatic form, and the
+    // rule cannot tell it apart from a genuinely unbound call. typescript-eslint
+    // documents this and points to eslint-plugin-jest's variant of the rule.
+    // Scoped to test files only — production code keeps the rule enforced.
+    files: [
+      '**/*.spec.ts',
+      '**/*.integration-spec.ts',
+      '**/*.e2e-spec.ts',
+      'test/**/*.ts',
+    ],
+    rules: {
+      '@typescript-eslint/unbound-method': 'off',
+    },
+  },
 );
