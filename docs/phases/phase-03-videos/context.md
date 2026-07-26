@@ -3,7 +3,7 @@ kind: phase
 name: phase-03-videos
 sources_mtime:
   docs/project-plan.md: "2026-07-25T18:41:10Z"
-  docs/decisions/technical-decisions-phase-03-videos.md: "2026-07-26T01:21:26Z"
+  docs/decisions/technical-decisions-phase-03-videos.md: "2026-07-26T14:51:28Z"
   docs/decisions/technical-decisions-nestjs-test-infrastructure.md: "2026-07-25T21:24:34Z"
   docs/decisions/technical-decisions-openapi-docs-nestjs.md: "2026-07-25T18:41:10Z"
   docs/phases/phase-01-configuracao-base/context.md: "2026-07-25T18:41:10Z"
@@ -38,14 +38,14 @@ sources_mtime:
 
 **Deferred subprojects:** `next-frontend/` — a interface de vídeo (telas de upload, player, gerenciamento) não faz parte desta fase; o contrato HTTP produzido aqui é publicado via `openapi.json` e consumido pelo frontend nas Fases 04–05.
 
-> `project-plan.md` não declara subprojetos em fase alguma — o campo é preenchido no `context.md`, como nas Fases 01 e 02. A atribuição acima deriva das 9 capabilities (todas de backend: storage, fila, worker, entidade, endpoints) e do enunciado da fase, que define a entrega como API, worker e infraestrutura.
+> `project-plan.md` não declara subprojetos em fase alguma — `plan-reader` reportou `_Not declared._`, e o campo é preenchido aqui, como nas Fases 01 e 02. A atribuição acima deriva das 9 capabilities (todas de backend: storage, fila, worker, entidade, endpoints) e do enunciado da fase, que define a entrega como API, worker e infraestrutura.
 
 **Sequencing notes:** `> Depende de: Fase 01, Fase 02` — Fase 03 is itself a declared dependency of Fase 04 (`> Depende de: Fase 02, Fase 03`) and Fase 05 (`> Depende de: Fase 03, Fase 04`). Phase framing sentence: "Upload de arquivos grandes sem travar o sistema, processamento automático do vídeo e geração de URL única."
 
 **Neighbors (for boundary detection only):**
 
-- **Phase 02:** Cadastro, Login e Gerenciamento de Conta — Depende de: Fase 01
-- **Phase 04:** Gerenciamento de Vídeos e Canal — Depende de: Fase 02, Fase 03
+- **Phase 02:** `### Fase 02 — Cadastro, Login e Gerenciamento de Conta` — `> Depende de: Fase 01`
+- **Phase 04:** `### Fase 04 — Gerenciamento de Vídeos e Canal` — `> Depende de: Fase 02, Fase 03`
 
 ## Decisions Index
 
@@ -59,8 +59,8 @@ sources_mtime:
 | phase-03-videos/TD-06 | phase | Backend | Identificador público único por vídeo | decided | B (Slug curto aleatório em coluna própria) | — |
 | phase-03-videos/TD-07 | phase | Backend | Estratégia de entrega — streaming e download | decided | A (Redirect para URL pré-assinada de GET) | — |
 | phase-03-videos/TD-08 | phase | Backend | Ciclo de status, retry, dead letter e idempotência | decided | A (Enum no banco + retry nativo do BullMQ) | — |
-
-_`Renders in` column omitted: no TD in scope sets the field (all `—`)._
+| phase-03-videos/TD-09 | phase | Backend | Política de inputs aceitos e onde ela é validada | pending | — | — |
+| phase-03-videos/TD-10 | phase | Backend | Cliente S3 para Node — presign de parte, presign de GET… | pending | — | — |
 
 _Source files:_
 
@@ -70,15 +70,15 @@ _Source files:_
 
 | Capability (from project-plan.md) | Covered by |
 |-----------------------------------|------------|
-| Serviço de armazenamento de arquivos (vídeos e thumbnails) | phase-03-videos/TD-02 |
+| Serviço de armazenamento de arquivos (vídeos e thumbnails) | phase-03-videos/TD-02, phase-03-videos/TD-10 |
 | Serviço de processamento em segundo plano (filas) | phase-03-videos/TD-01 |
-| Upload de vídeos com suporte a arquivos de até 10GB sem impacto na performance | phase-03-videos/TD-03 |
+| Upload de vídeos com suporte a arquivos de até 10GB sem impacto na performance | phase-03-videos/TD-03, phase-03-videos/TD-09, phase-03-videos/TD-10 |
 | Pré-cadastro automático do vídeo como rascunho ao iniciar o upload | phase-03-videos/TD-03, phase-03-videos/TD-08 |
-| Processamento automático do vídeo após upload (extração de duração e metadados) | phase-03-videos/TD-04, phase-03-videos/TD-05, phase-03-videos/TD-08 |
+| Processamento automático do vídeo após upload (extração de duração e metadados) | phase-03-videos/TD-04, phase-03-videos/TD-05, phase-03-videos/TD-08, phase-03-videos/TD-09 |
 | Geração automática de thumbnail a partir de um frame do vídeo | phase-03-videos/TD-05 |
 | URL única por vídeo, sem conflito com outros vídeos | phase-03-videos/TD-06 |
-| Reprodução via streaming (sem necessidade de download completo) | phase-03-videos/TD-07 |
-| Download do vídeo pelo usuário | phase-03-videos/TD-07 |
+| Reprodução via streaming (sem necessidade de download completo) | phase-03-videos/TD-07, phase-03-videos/TD-10 |
+| Download do vídeo pelo usuário | phase-03-videos/TD-07, phase-03-videos/TD-10 |
 
 ## Decisions Detail
 
@@ -200,37 +200,37 @@ _Source files:_
 
 ### phase-02-auth-frontend/TD-01
 
-**Recommendation:** Three reasons. (1) **Architectural fit.** The strict-BFF model in `next-frontend-config-base/TD-03` already nominates the Route Handler as the only NestJS caller; cookie-based sessions are the natural match. (2) **Smaller blast radius.** A ~50-LOC session helper is grep-friendly, debuggable, and test-friendly via the existing MSW+BFF integration test pattern. (3) **Compatibility with Next.js 16 / React 19.** Built-in `next/headers` `cookies()` is the canonical primitive both runtimes already use.
+**Recommendation:** Three reasons. (1) **Architectural fit.** The strict-BFF model in `next-frontend-config-base/TD-03` already nominates the Route Handler as the only NestJS caller; cookie-based sessions are the natural match, and Auth.js's framework adds layers between the BFF and the cookie that buy nothing because the backend is the auth authority — Auth.js's value (DB adapters, OAuth providers, magic-link, `getServerSession` helpers) is mostly unused in this configuration. (2) **Smaller blast radius.** A ~50-LOC session helper is grep-friendly, debuggable, and test-friendly via the existing MSW+BFF integration test pattern; a misconfigured Auth.js callback is a longer fault-isolation loop. (3) **Compatibility with Next.js 16 / React 19.** Built-in `next/headers` `cookies()` is the canonical primitive both runtimes already use; Auth.js v5 versions track Next.js majors with a lag, adding compatibility risk that Option A does not have. Option C is rejected as unsafe (`localStorage` for refresh tokens) and architecturally regressive (loses RSC personalization).
 **Libraries:** —
 
 ### phase-02-auth-frontend/TD-02
 
-**Recommendation:** Three reasons. (1) **Defense in depth on the cookie content** — `httpOnly` blocks JS, encryption blocks accidental log/proxy inspection. (2) **Single cookie to manage** simplifies logout and avoids the orphan-cookie failure mode. (3) **Room to carry minimal user metadata** (`userId`, `email`, `channelSlug`) lets `app/layout.tsx` RSC render the authenticated chrome without a per-render `/auth/me` round-trip.
+**Recommendation:** Three reasons. (1) **Defense in depth on the cookie content** — `httpOnly` blocks JS, encryption blocks accidental log/proxy inspection; the marginal cost is one ~3KB dep. (2) **Single cookie to manage** simplifies logout (one `session.destroy()` call) and avoids the orphan-cookie failure mode of Option A. (3) **Room to carry minimal user metadata** (`userId`, `email`, `channelSlug`) lets `app/layout.tsx` RSC render the authenticated chrome (avatar, channel name) without a per-render `/auth/me` round-trip — Phase 04+ gains compound here. Option A is a viable downgrade if the team rejects `iron-session` for any reason; the migration A→B (or B→A) is a one-Route-Handler refactor with no test changes downstream because the BFF interface is unchanged. Option C is rejected: it solves a problem (server-side revocation) the project does not have at the cost of infrastructure the project does not own.
 **Libraries:** iron-session
 
 ### phase-02-auth-frontend/TD-03
 
-**Recommendation:** The single-flight detail is non-trivial and goes in the helper from day one — tested by MSW with a "two concurrent intercepted upstream calls; one refresh expected" assertion. Option B's client-driven pattern is rejected because it doesn't replace Option A (RSC still needs server-side refresh). Option C's pre-emptive timer is rejected because the failure modes (multiple tabs, sleep/wake) outweigh the latency saving.
+**Recommendation:** The single-flight detail is non-trivial and goes in the helper from day one — tested by MSW with a "two concurrent intercepted upstream calls; one refresh expected" assertion. Option B's client-driven pattern is rejected because it doesn't replace Option A (RSC still needs server-side refresh) — adopting B means doing both. Option C's pre-emptive timer is rejected because the failure modes (multiple tabs, sleep/wake) outweigh the latency saving and force a `"use client"` shell near the root.
 **Libraries:** —
 
 ### phase-02-auth-frontend/TD-04
 
-**Recommendation:** Three reasons. (1) **Decoupled from TD-05** — works with Route Handlers OR Server Actions. (2) **Aligned with shadcn's canonical form primitive** — `npx shadcn@latest add form` produces react-hook-form wrappers. (3) **Zod-first developer ergonomics match the rest of the FE foundation** — `next-frontend-config-base/TD-01` chose Zod 4 for env; the same schemas-as-source-of-truth pattern carries to forms.
+**Recommendation:** Three reasons. (1) **Decoupled from TD-05** — works with Route Handlers OR Server Actions; the form code does not change if TD-05 is revisited later. (2) **Aligned with shadcn's canonical form primitive** — the project already commits to `radix-nova` shadcn (`components.json`); `npx shadcn@latest add form` produces react-hook-form wrappers; choosing react-hook-form means using the supported primitive instead of hand-rolling around it. (3) **Zod-first developer ergonomics match the rest of the FE foundation** — `next-frontend-config-base/TD-01` chose Zod 4 for env; the same schemas-as-source-of-truth pattern carries to forms with zero new validator paradigm. Option B is rejected for impedance with shadcn's primitive and for over-investing in progressive-enhancement that the strict-BFF model does not require. Option C is rejected for the per-field boilerplate and the loss of client-side feedback on a project that values quick, type-safe form iteration.
 **Libraries:** react-hook-form, @hookform/resolvers
 
 ### phase-02-auth-frontend/TD-05
 
-**Recommendation:** Three reasons. (1) **Strict-BFF alignment.** Option A keeps every mutation visible under `app/api/**`. (2) **Test scaffold already exists** — authored for Route-Handlers-as-functions; Option A reuses them with zero invention. (3) **Single mutation surface** — Phase 02 sets the precedent for Phases 03–07; uniformity beats per-mutation idiom-picking.
+**Recommendation:** Three reasons. (1) **Strict-BFF alignment.** `next-frontend-config-base/TD-03` named Route Handlers as the BFF surface; Option A keeps every mutation visible under `app/api/**`. (2) **Test scaffold already exists** — `next-frontend/CLAUDE.md` § Testing and `next-frontend-msw-foundation` were authored for Route-Handlers-as-functions; Option A reuses them with zero invention. (3) **Single mutation surface** — Phase 02 sets the precedent for Phases 03–07; uniformity beats per-mutation idiom-picking when the cost of inconsistency compounds (Option C). Option B has real ergonomic appeal for the simplest forms but fragments the BFF surface and forces test-pattern reinvention; if the team later wants progressive enhancement for specific forms, the migration A→B is per-form and doesn't require touching unrelated routes — A is the safer default and the cheaper baseline.
 **Libraries:** —
 
 ### phase-02-auth-frontend/TD-06
 
-**Recommendation:** Two reinforcing reasons. (1) **No first-render flicker, no round-trip** — the session is delivered in the same response as the page HTML. (2) **No new BFF endpoint** — the cookie is the source of truth, RSC reads it, the Provider broadcasts it; the BFF surface stays minimal.
+**Recommendation:** Two reinforcing reasons. (1) **No first-render flicker, no round-trip** — the session is delivered in the same response as the page HTML; the Client Provider hydrates with the correct initial state; users never see "Login" briefly turn into their avatar. (2) **No new BFF endpoint** — the cookie is the source of truth, RSC reads it, the Provider broadcasts it; the BFF surface stays minimal. The `router.refresh()` requirement after mid-session mutations is a small price (one line in the relevant mutation handler) for the structural benefits. Option B is rejected for the double-read-and-flicker; Option C is dominated by Option B and rejected.
 **Libraries:** —
 
 ### phase-02-auth-frontend/TD-07
 
-**Recommendation:** Three reasons. (1) **First-paint-correct** — the user sees the right outcome on the first paint, no skeleton, no flicker. (2) **Single integration pattern across both flows** — both share the "RSC owns the token, Client Component owns the input" split. (3) **Email-prefetch behavior** is solved at the backend's idempotent-confirmation level.
+**Recommendation:** Three reasons. (1) **First-paint-correct** — the user sees the right outcome on the first paint, no skeleton, no flicker. (2) **Single integration pattern across both flows** — confirmation is RSC-only; reset is RSC + Client form (TD-04, TD-05 patterns reused) — both share the "RSC owns the token, Client Component owns the input" split. (3) **Email-prefetch behavior** is solved at the backend's idempotent-confirmation level (a small note for `/plan-build` to confirm; not a separate TD). Option B's Route-Handler-as-link-target adds redirects for no clean gain. Option C is dominated.
 **Libraries:** —
 
 ### nestjs-test-infrastructure/TD-01
@@ -240,32 +240,34 @@ _Source files:_
 
 ### nestjs-test-infrastructure/TD-02
 
-**Recommendation:** Suites write to a **separate `streamtube_test` database** on the same `db` service, selected via `DOTENV_CONFIG_PATH=.env.test` on every `test*` script. Schema provisioning lives in `test/global-setup.ts`, registered as `globalSetup` in both Jest configs — it creates the database if absent and runs the migrations, since `AppModule` uses `synchronize: false`. Chosen over chaining migrations in the npm script because it also protects `npx jest path/to/file`.
+**Recommendation:** Suites write to a **separate `streamtube_test` database** on the same `db` service, selected via `DOTENV_CONFIG_PATH=.env.test` on every `test*` script (the existing `setupFiles: ["dotenv/config"]` already honours that variable, so no loader code was added). Schema provisioning lives in `test/global-setup.ts`, registered as `globalSetup` in both Jest configs — it creates the database if absent and runs the migrations, since `AppModule` uses `synchronize: false`. Chosen over chaining migrations in the npm script because it also protects `npx jest path/to/file`.
 **Libraries:** —
 
 ### nestjs-test-infrastructure/TD-03
 
-**Recommendation:** `--forceExit` on every test script (`test`, `test:cov`, `test:integration`, `test:e2e`). This is a **safety net, not a licence to leak** — suites must still `destroy()` / `app.close()` in a `finally`. `--detectOpenHandles` is deliberately NOT in the default scripts and lives in a dedicated `test:handles` script for diagnosis.
+**Recommendation:** `--forceExit` on every test script (`test`, `test:cov`, `test:integration`, `test:e2e`), matching the team's other repository. This is a **safety net, not a licence to leak** — suites must still `destroy()` / `app.close()` in a `finally`. `--detectOpenHandles` is deliberately NOT in the default scripts and lives in a dedicated `test:handles` script for diagnosis.
 **Libraries:** —
 
 ### nestjs-test-infrastructure/TD-04
 
-**Recommendation:** `.env.test` is **committed**. It holds only throwaway values for a local test database and no real secret; the sole load-bearing value is `DB_NAME=streamtube_test`. Committing it means cloning the repo requires no manual setup step before the suite is safe to run.
+**Recommendation:** `.env.test` is **committed**. It holds only throwaway values for a local test database and no real secret; the sole load-bearing value is `DB_NAME=streamtube_test`. Committing it means cloning the repo requires no manual setup step before the suite is safe to run. `.gitignore` already excludes only `.env` and `.env.test.local`, so no change was needed there.
 **Libraries:** —
 
 ### openapi-docs-nestjs/TD-01
 
-**Recommendation:** Option A (`@nestjs/swagger`) — é a única opção que preserva as decisões anteriores (`class-validator` em TD-06 de phase-02-auth) sem re-platform; o CLI plugin com `classValidatorShim: true` aproveita os decoradores `class-validator` existentes para inferir schemas, mantendo o boilerplate baixo.
+**Recommendation:** **Option A (`@nestjs/swagger`)** — é a única opção que preserva as decisões anteriores (`class-validator` em TD-06 de phase-02-auth) sem re-platform; o CLI plugin com `classValidatorShim: true` aproveita os decoradores `class-validator` existentes para inferir schemas, mantendo o boilerplate baixo. Nestia tem mérito técnico real mas o custo de migração do stack de validação inviabiliza-a sem uma decisão upstream de supersede de TD-06. Manual authoring é descartado.
 **Libraries:** @nestjs/swagger
+**Revisions:**
+- 2026-05-12 — Esclarece que o CLI plugin (`classValidatorShim: true`) cobre apenas inferência de schemas de DTOs a partir de `class-validator`; documentação de operações, respostas tipadas por status code, contratos de erro (alinhados ao envelope de phase-02-auth/TD-07) e exemplos exigem decoradores explícitos (`@ApiOperation`, `@ApiResponse`, `@ApiBody`, `@ApiParam`, `@ApiQuery`, `@ApiExtraModels`). _Rationale:_ openapi.json gerado pelo bootstrap atual está genérico — sem detalhes de parâmetros, schemas de retorno por status, nem contratos de erro — porque a base instalada se apoiou só na introspecção automática. Esta revisão fixa que enriquecimento via decoradores explícitos faz parte da Option A escolhida, não é trabalho fora do escopo do TD.
 
 ### openapi-docs-nestjs/TD-02
 
-**Recommendation:** Option C (Ambos) — o custo marginal sobre Option A é apenas um npm script (~15 linhas) e o benefício é uma fundação correta para futura integração FE (codegen offline) sem perder a UI interativa que dev/QA usam.
+**Recommendation:** **Option C (Ambos)** — o custo marginal sobre Option A é apenas um npm script (~15 linhas) e o benefício é uma fundação correta para futura integração FE (codegen offline) sem perder a UI interativa que dev/QA usam. Option B sozinho pune a experiência de desenvolvimento em dev/local; Option A sozinho compromete o pipeline de codegen futuro. Combinar é dominante.
 **Libraries:** —
 
 ### openapi-docs-nestjs/TD-03
 
-**Recommendation:** Option B (Apenas em dev/staging) — alinha com a postura defensiva já estabelecida em phase 02 e não compromete consumidores legítimos (o `openapi.json` commitado em TD-02 cumpre o papel de "spec consultável fora da UI").
+**Recommendation:** **Option B (Apenas em dev/staging)** — alinha com a postura defensiva já estabelecida em phase 02 e não compromete consumidores legítimos (o `openapi.json` commitado em TD-02 cumpre o papel de "spec consultável fora da UI"). Re-abrir como Option A ou C é trivial no futuro se um caso de uso de API pública aparecer.
 **Libraries:** —
 
 ## Inherited Conventions
@@ -290,9 +292,7 @@ _Source files:_
 
 ## Non-UI / Deferred Capabilities
 
-| Capability | Status | Rationale | TD refs |
-|-----------|--------|-----------|---------|
-| _None._ | | | |
+_None._
 
 ## Testing Requirements
 
@@ -319,3 +319,7 @@ _Source files:_
 _Suffixes: `*.spec.ts` (unit), `*.integration-spec.ts` (integration, real DB), `*.e2e-spec.ts` (E2E via supertest, under `nestjs-project/test/`)._
 
 _External systems policy (`references/external-systems.md`): PostgreSQL, message queue and email run **real** in Docker for integration tests — do not mock what the Compose stack can run for real._
+
+### next-frontend
+
+_Deferred subproject — no work in this phase; testing requirements not applicable._

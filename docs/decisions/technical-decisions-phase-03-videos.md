@@ -1,7 +1,7 @@
 ---
 scope_type: phase
 related_phases: [3]
-status: decided
+status: pending
 date: 2026-07-25
 scope_description: "Upload, armazenamento e processamento assíncrono de vídeos: tecnologia de fila, organização do object storage, protocolo de upload de até 10GB sem passar pela API, execução do worker de processamento (metadados + thumbnail via FFmpeg), identificador público único por vídeo, entrega por streaming/download e o ciclo de status com tratamento de falha."
 ---
@@ -275,6 +275,77 @@ _Subprojects in scope:_
 
 ---
 
+## TD-09: Política de inputs aceitos e onde ela é validada
+
+**Scope:** Backend
+
+**Capability:** Transversal — covers: "Upload de vídeos com suporte a arquivos de até 10GB sem impacto na performance"; "Processamento automático do vídeo após upload (extração de duração e metadados)"
+
+**Context:** A TD-03 tirou o byte do caminho da API — o cliente escreve direto no storage por URLs pré-assinadas. Isso elimina o ponto onde normalmente se valida upload (o interceptor que inspeciona o arquivo), e deixa três exigências sem dono. **(1)** O limite de 10GB do enunciado precisa ser recusado *antes* do upload, não descoberto depois. **(2)** A TD-08 exige distinguir falha transitória de permanente, e "o arquivo não é um vídeo" é justamente o caso permanente que não deve gastar tentativas — mas nenhuma regra diz o que torna um input inválido. **(3)** A TD-07 entrega o **objeto original** por URL pré-assinada e a fase não transcodifica nada, então o que se aceita na entrada determina se o entregável "streaming funcionando" vale para todo vídeo aceito ou só para alguns. Levantado como `MD-1` pelo `/plan-validate 03`.
+
+**Options:**
+
+### Option A: Declaração validada na iniciação + verificação real no worker
+- O `POST` de iniciação recebe nome, tamanho e mime declarados; a API confere contra um allowlist e contra o teto de 10GB, e só emite as URLs pré-assinadas se passar. A verdade é estabelecida depois pelo worker: o `ffprobe` da TD-05 lê contêiner e streams reais; divergência ou contêiner fora do allowlist marca `failed` permanente, sem retry.
+- **Pros:** Nada transita pela API — o critério de reprova da fase continua respeitado. O teto de 10GB é recusado no primeiro request, antes de qualquer byte subir. A verificação real não custa dependência nova: o `ffprobe` já roda para extrair metadados, então é uma condição a mais no handler que já existe. Dá à TD-08 a regra concreta que ela pediu para classificar falha permanente. O custo de um upload ruim é limitado pela lifecycle rule da TD-03 mais o delete no caminho de falha.
+- **Cons:** Declaração é autodeclarada — um cliente que minta no mime sobe o arquivo inteiro antes de ser rejeitado pelo worker (desperdício de banda e de storage temporário, não de correção). A política passa a ser afirmada em dois lugares (API e worker), o que exige uma constante compartilhada para não divergir.
+
+### Option B: Validação apenas no worker
+- A API emite URLs pré-assinadas para qualquer coisa; o worker é o único portão, rejeitando depois do upload concluído.
+- **Pros:** Uma única fonte de verdade, sem risco de divergência entre dois pontos. Contrato de iniciação mínimo.
+- **Cons:** Nenhum feedback antecipado — o usuário descobre que mandou um `.txt` depois de esperar o upload terminar. Pior: o teto de 10GB deixa de ser aplicável de fato, porque o tamanho só é conhecido no fim, o que colide frontalmente com a capability "Upload de vídeos com suporte a arquivos de até 10GB sem impacto na performance". Transforma abuso trivial em custo de storage.
+
+### Option C: Restrições assinadas na própria URL pré-assinada
+- Usar as *conditions* da policy do S3 (`content-length-range`, `Content-Type`) para o próprio storage recusar o que estiver fora da política, sem confiar no cliente nem na API.
+- **Pros:** Aplicação pelo storage, não por confiança no cliente — o mais forte dos três em teoria.
+- **Cons:** **Incompatível com a TD-03.** As *conditions* de policy pertencem ao presigned **POST** (upload de request único); o que a TD-03 decidiu é presigned **PUT por parte** de multipart, onde não existe esse mecanismo — assina-se headers específicos, e um limite por parte não impõe limite ao total. Escolher C exigiria reabrir a TD-03 e abandonar o multipart, que é obrigatório pelo teto de 5GB do PUT simples. Eliminada por incompatibilidade, não por preferência.
+
+**Recommendation:** **Option A — declaração validada na iniciação, verdade estabelecida pelo worker.** A Option C está tecnicamente fora (não existe sob multipart pré-assinado) e a Option B abandona a única defesa possível do teto de 10GB. Restam os parâmetros, que precisam ser fixados aqui e não descobertos na implementação:
+
+- **Allowlist: `video/mp4` e `video/webm`.** É a escolha que mantém o entregável honesto. Como a TD-07 serve o original e esta fase não transcodifica, aceitar `.mkv` ou `.mov` significaria aceitar arquivos que o navegador não toca — "streaming funcionando" passaria a valer só para parte dos uploads. MP4 e WebM são os dois contêineres que os navegadores reproduzem nativamente, então tudo que é aceito é reproduzível. Ampliar o allowlist é assunto da fase que introduzir transcodificação: não há capability de transcodificação na Fase 03, e criar uma seria requisito inventado.
+- **Verificação do worker:** `format_name` do `ffprobe` compatível com o allowlist **e** existência de ao menos um stream de vídeo. Falhar qualquer uma das duas → `failed` permanente, sem consumir `attempts`.
+- **Sem limite de duração.** Nenhuma capability da fase pede um, e o enunciado fixa o limite em tamanho (10GB), não em tempo. Um teto de duração seria requisito sem origem identificável.
+- **Uma constante, dois consumidores.** O allowlist mora num único módulo de `src/videos/` importado pela API e pelo worker — a TD-04 mantém os dois na mesma base de código, então a divergência que é o `Con` da Option A se resolve por construção, não por disciplina.
+
+**Decision:** _[pending]_
+
+---
+
+## TD-10: Cliente S3 para Node — presign de parte, presign de GET e lifecycle rule
+
+**Scope:** Backend
+
+**Capability:** Transversal — covers: "Serviço de armazenamento de arquivos (vídeos e thumbnails)"; "Upload de vídeos com suporte a arquivos de até 10GB sem impacto na performance"; "Reprodução via streaming (sem necessidade de download completo)"; "Download do vídeo pelo usuário"
+
+**Context:** Três decisões já tomadas dependem de um cliente S3 no runtime Node e nenhuma diz qual: a TD-02 provisiona dois buckets no bootstrap, a TD-03 assina uma URL por parte de multipart e exige a lifecycle rule que expira multipart incompleto, e a TD-07 assina `GET`. As **Notas para o `/plan-resolve`** deste documento classificaram a escolha como detalhe de implementação — essa classificação está sendo revista aqui por dois motivos concretos. Primeiro, o teste do próprio `/research`: a escolha é citada em configuração, serviço de storage, worker e `compose.yaml`, que precisam permanecer consistentes — é contrato cross-component, não detalhe local. Segundo, o pipeline: o `/plan-resolve` em phase mode **não pode criar TDs**, e o `library-refs.md` é montado a partir do campo `Libraries` das TDs — sem uma TD, a biblioteca fica sem origem rastreável e a consulta obrigatória via context7 sem alvo. Levantado como `MD-2` pelo `/plan-validate 03`.
+
+**Options:**
+
+### Option A: `@aws-sdk/client-s3` + `@aws-sdk/s3-request-presigner`
+- SDK oficial da AWS, modular. `getSignedUrl(client, command, { expiresIn })` assina qualquer command — inclusive `UploadPartCommand` e `GetObjectCommand`. `PutBucketLifecycleConfigurationCommand` aceita `AbortIncompleteMultipartUpload: { DaysAfterInitiation }`. Compatibilidade com storage S3-compatível pela combinação documentada `endpoint` + `forcePathStyle: true`.
+- **Pros:** As quatro operações da fase são commands documentados de primeira classe — verificado via context7 nesta pesquisa, incluindo o XML/shape da lifecycle rule com `AbortIncompleteMultipartUpload`. A armadilha do endpoint duplo da TD-03 (interno para o servidor, público para o navegador que consome a URL assinada) resolve-se com duas instâncias de client ou override por chamada, sem gambiarra de string. Mantém o código portável para S3 real em produção, que é a intenção declarada pelo `software-arch.mermaid` ("S3/MinIO"). Tipos TypeScript no pacote; instalação modular, sem arrastar o SDK inteiro.
+- **Cons:** API verbosa (um objeto de command por operação). O comportamento default de checksum do SDK v3 (`requestChecksumCalculation: "WHEN_SUPPORTED"`, que adiciona CRC32) é ponto de fricção conhecido com servidores S3-compatíveis e com requests pré-assinados, onde o cliente precisa enviar exatamente os headers assinados — precisa ser verificado contra o MinIO na implementação. Dois pacotes em vez de um.
+
+### Option B: `minio` (cliente oficial do MinIO para JS)
+- Cliente de alto nível específico para MinIO e servidores S3-compatíveis. `presignedGetObject` cobre a TD-07 direto; `presignedUrl(method, bucket, object, expires, reqParams)` é genérico e permite assinar `PUT ?uploadId&partNumber`.
+- **Pros:** API mais enxuta e menos cerimoniosa que a do AWS SDK para os casos simples — `presignedGetObject` é uma chamada. Pacote único. Feito exatamente para o servidor que roda no Compose.
+- **Cons:** Orquestrar multipart pré-assinado depende de superfície **não pública**: a consulta via context7 mostra `initiateNewMultipartUpload` em `src/internal/client.ts`, ou seja, para obter o `uploadId` seria preciso chamar API interna ou emitir o `POST ?uploads` à mão. Depender de interno é a mesma classe de dívida que a TD-05 recusou ao rejeitar o `fluent-ffmpeg` — só que aqui no dia um. A limpeza de multipart abandonado que a documentação expõe é `removeIncompleteUpload`, por objeto, não a regra de bucket que a TD-03 exige (o suporte a `setBucketLifecycle` não apareceu na consulta e precisaria ser confirmado antes de escolher esta opção). Amarra o código ao MinIO, contrariando a intenção de portabilidade.
+
+### Option C: HTTP direto com assinatura SigV4 própria
+- Implementar a assinatura SigV4 e falar com o endpoint S3 por `fetch`, sem SDK.
+- **Pros:** Zero dependência de storage no `package.json`. Controle total sobre exatamente quais headers são assinados, o que elimina de saída a fricção de checksum da Option A.
+- **Cons:** SigV4 é criptografia de protocolo, e é exatamente a categoria de código sutil que a TD-07 se recusou a reescrever quando delegou `Range`/`206` ao storage. Erro de assinatura se manifesta como `403` opaco, difícil de depurar. Nenhum ganho funcional sobre a Option A.
+
+**Recommendation:** **Option A — `@aws-sdk/client-s3` + `@aws-sdk/s3-request-presigner`.** As quatro operações que a fase precisa foram confirmadas como API pública documentada nesta pesquisa, enquanto a Option B exige API interna justamente na operação central da TD-03 — e o projeto já estabeleceu, na TD-05, que depender de superfície instável ou não mantida é dívida a evitar na origem, não a aceitar por conveniência de sintaxe. A Option C troca uma dependência por código criptográfico próprio, sem nada em troca. Duas consequências para o plano, ambas herdadas de decisões anteriores e agora com solução concreta:
+
+- **Dois endpoints, um cliente.** `endpoint: http://minio:9000` (nome de serviço do Compose, como o `CLAUDE.md` exige) para o que o servidor faz por conta própria — criar buckets, aplicar lifecycle, iniciar e completar multipart; e um endpoint público, vindo de env própria, para **assinar** as URLs que o navegador vai consumir. É a armadilha nº 1 da TD-03 resolvida por configuração explícita, e não é licença para `localhost` em host de serviço: é um segundo valor, declarado, com finalidade única.
+- **`forcePathStyle: true`** é obrigatório contra MinIO — sem ele o SDK monta URL virtual-hosted (`bucket.minio:9000`), que não resolve na rede do Compose.
+- Versão a fixar em `library-refs.md` pelo `/plan-resolve`. O context7 confirmou o **formato da API** (`getSignedUrl`, `UploadPartCommand`, `PutBucketLifecycleConfigurationCommand`, `endpoint` + `forcePathStyle`); a versão exata continua sendo item de confirmação daquele estágio.
+
+**Decision:** _[pending]_
+
+---
+
 ## Decisions Summary
 
 | ID | Scope | Decision | Recommendation | Choice |
@@ -287,6 +358,8 @@ _Subprojects in scope:_
 | TD-06 | Backend | Identificador público do vídeo | B — slug curto aleatório em coluna própria | B |
 | TD-07 | Backend | Streaming e download | A — redirect para URL pré-assinada de `GET` | A |
 | TD-08 | Backend | Ciclo de status, retry e idempotência | A — enum no banco + retry nativo do BullMQ | A |
+| TD-09 | Backend | Política de inputs aceitos e ponto de validação | A — declaração validada na iniciação + verdade no worker | _[pending]_ |
+| TD-10 | Backend | Cliente S3 para Node | A — `@aws-sdk/client-s3` + `s3-request-presigner` | _[pending]_ |
 
 ## Notas para o `/plan-resolve`
 
@@ -296,9 +369,11 @@ Bibliotecas a confirmar via **context7** e fixar em `library-refs.md` (versões 
 |---|---|---|
 | `bullmq` | 5.81.2 | TD-01 |
 | `@nestjs/bullmq` | 11.0.4 | TD-01 |
-| `@aws-sdk/client-s3` | 3.1095.0 | TD-02, TD-03, TD-07 |
-| `@aws-sdk/s3-request-presigner` | 3.1095.0 | TD-03, TD-07 |
+| `@aws-sdk/client-s3` | 3.1095.0 | TD-10 (usado por TD-02, TD-03, TD-07) |
+| `@aws-sdk/s3-request-presigner` | 3.1095.0 | TD-10 (usado por TD-03, TD-07) |
 
-Alternativa a avaliar em TD-02/TD-03: o cliente `minio` (8.0.7) em vez do AWS SDK. O AWS SDK mantém o código portável para S3 real em produção, que é a intenção declarada do projeto; o cliente `minio` tem API mais enxuta para multipart pré-assinado. A escolha entre os dois é detalhe de implementação dentro das TDs acima, não uma TD própria — mas vale confirmar via context7 qual expõe melhor `UploadPartCommand` pré-assinado.
+**Revisão desta nota (2026-07-26).** A versão anterior deste parágrafo afirmava que a escolha entre o AWS SDK e o cliente `minio` era "detalhe de implementação dentro das TDs acima, não uma TD própria". Essa classificação foi revertida: o `/plan-validate 03` levantou a lacuna como `MD-2`, e a escolha virou a **TD-10**. Dois motivos, ambos verificáveis. (1) O teste do `/research` — a escolha é citada em config, serviço de storage, worker e `compose.yaml`, que precisam permanecer consistentes; é contrato cross-component. (2) O `/plan-resolve` em phase mode não cria TDs, e o `library-refs.md` é montado a partir do campo `Libraries` das TDs — sem TD, a biblioteca não tem origem rastreável e a consulta obrigatória via context7 fica sem alvo. A comparação foi feita via context7 e está registrada nas Options da TD-10.
 
-Sem dependência nova para TD-05: FFmpeg e ffprobe entram como binários no Dockerfile do worker, não como pacote npm.
+Sem dependência nova para TD-05 nem para TD-09: FFmpeg e ffprobe entram como binários no Dockerfile do worker, não como pacote npm. A TD-09 reaproveita o `ffprobe` da TD-05 como ponto de verificação — nenhum pacote adicional.
+
+**Pendências deste documento para o `/plan-resolve` preencher:** TD-09 e TD-10 estão em `_[pending]_` (por isso o `status:` do frontmatter voltou a `pending`). As oito primeiras seguem decididas e **não devem ser reabertas**.
