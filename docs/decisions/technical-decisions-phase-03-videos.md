@@ -1,7 +1,7 @@
 ---
 scope_type: phase
 related_phases: [3]
-status: pending
+status: decided
 date: 2026-07-25
 scope_description: "Upload, armazenamento e processamento assíncrono de vídeos: tecnologia de fila, organização do object storage, protocolo de upload de até 10GB sem passar pela API, execução do worker de processamento (metadados + thumbnail via FFmpeg), identificador público único por vídeo, entrega por streaming/download e o ciclo de status com tratamento de falha."
 ---
@@ -54,7 +54,7 @@ _Subprojects in scope:_
 
 **Recommendation:** **Option A — BullMQ sobre Redis.** A carga da fase é de dezenas de jobs por dia, então throughput não é critério de desempate — o que decide é qual opção entrega retry, backoff e dead letter com menos código próprio, e qual integra melhor com NestJS 11. BullMQ ganha nos dois: `@nestjs/bullmq` 11 é a integração oficial da mesma major do framework, e TD-08 vira configuração em vez de implementação. Kafka é descartável de saída — é event streaming resolvendo um problema que não existe aqui. RabbitMQ seria a escolha certa se a fase precisasse de roteamento por exchange ou garantias transacionais de entrega, e não precisa: é um único tipo de job, um único consumidor. Restaria o argumento de durabilidade, e ele se resolve habilitando persistência AOF no Redis — mais barato que adotar um broker novo. A familiaridade do usuário não é o motivo da escolha, mas reforça-a: reduz risco de operação num escopo que já é o maior da fase.
 
-**Decision:** _[A]_
+**Decision:** A (BullMQ sobre Redis)
 
 ---
 
@@ -85,7 +85,7 @@ _Subprojects in scope:_
 
 **Recommendation:** **Option B — buckets separados por finalidade.** O critério decisivo é a fronteira de acesso, não a conveniência: thumbnail é servida a usuários anônimos e vídeo bruto nunca deve ser, e essa distinção fica muito mais difícil de errar quando é uma propriedade do bucket em vez de um prefixo dentro de um bucket compartilhado. Dentro de cada bucket, manter a chave com o `videoId` (`{videoId}/source.mp4`, `{videoId}/default.jpg`) preserva a inspecionabilidade que a Option C perde. O custo é provisionar dois buckets no bootstrap — trivial, e feito uma vez.
 
-**Decision:** _[pending]_
+**Decision:** B (Buckets separados por finalidade)
 
 ---
 
@@ -116,7 +116,7 @@ _Subprojects in scope:_
 
 **Recommendation:** **Option A — multipart com URLs pré-assinadas por parte.** A Option B está tecnicamente eliminada: 5GB não atende a um requisito de 10GB, e isso é limite do protocolo, não de configuração. Entre A e C, A não acrescenta serviço algum ao Compose e mantém o byte indo direto do cliente ao storage, que é exatamente o que o critério de reprova exige. Duas consequências de implementação precisam ser tratadas no plano, não descobertas depois: **(1)** as URLs pré-assinadas são consumidas pelo *cliente*, então precisam apontar para um endereço que o cliente alcança — o nome de serviço do Compose (`minio:9000`) resolve dentro da rede Docker mas não do navegador, o que exige configurar o endpoint público do MinIO separadamente do endpoint interno; **(2)** um lifecycle rule para expirar multipart incompleto é obrigatório, senão uploads abandonados acumulam partes órfãs silenciosamente.
 
-**Decision:** _[pending]_
+**Decision:** A (Multipart com URLs pré-assinadas por parte)
 
 ---
 
@@ -147,7 +147,7 @@ _Subprojects in scope:_
 
 **Recommendation:** **Option A — container separado compartilhando a base de código.** A Option B é a que mais economiza esforço agora e a que mais cobra depois: o ponto inteiro de processar em segundo plano é não deixar um vídeo de 10GB afetar quem está navegando, e rodar no mesmo processo desfaz isso. A Option C paga um preço de duplicação que só compensaria se o worker tivesse stack diferente, e não tem. A Option A entrega o isolamento sem duplicar domínio, e é a única compatível com o `software-arch.mermaid`. Duas consequências para o plano: o novo serviço precisa entrar em `scripts/run-gate.mjs` com seus gate ids (via skill `gate-builder`), e o Dockerfile do worker precisa instalar FFmpeg e ffprobe.
 
-**Decision:** _[pending]_
+**Decision:** A (Container separado, mesma base de código)
 
 ---
 
@@ -178,7 +178,7 @@ _Subprojects in scope:_
 
 **Recommendation:** **Option A — invocação direta via `child_process`.** A Option B seria a escolha natural e é justamente a que precisa ser evitada: está arquivada. A Option C troca desempenho por uma conveniência que o container já resolve. Chamar `ffprobe`/`ffmpeg` diretamente custa uma camada fina de código, sem dependência que possa apodrecer, e o `ffprobe` devolvendo JSON nativamente elimina a parte historicamente frágil (parsing de saída textual). Usar `execFile` com array de argumentos, nunca `exec` com string interpolada — nome de arquivo vindo do usuário em linha de comando é vetor de injeção.
 
-**Decision:** _[pending]_
+**Decision:** A (child_process chamando ffmpeg/ffprobe direto)
 
 ---
 
@@ -209,7 +209,7 @@ _Subprojects in scope:_
 
 **Recommendation:** **Option B — slug curto aleatório em coluna própria.** O ganho decisivo não é a URL mais bonita, é o desacoplamento: URL publicada é um compromisso permanente com o usuário, e amarrá-la à chave primária significa que qualquer mudança futura de estratégia de PK quebra links que já circulam. A Option C amarra a URL a um campo que a Fase 04 torna editável, o que é pior. O custo da B é uma coluna com índice único e tratamento de colisão — e o projeto já tem esse padrão pronto e testado na geração de nickname de canal, que pode ser reaproveitado em vez de reinventado.
 
-**Decision:** _[pending]_
+**Decision:** B (Slug curto aleatório em coluna própria)
 
 ---
 
@@ -240,7 +240,7 @@ _Subprojects in scope:_
 
 **Recommendation:** **Option A — redirect para URL pré-assinada.** É a opção coerente com a decisão que a fase já tomou no upload: se o argumento para não passar 10GB pela API na entrada é válido, ele vale igualmente na saída, onde o volume acumulado é maior (um upload, muitas reproduções). Além disso, `Range`/`206` correto é código sutil, e o S3/MinIO já o implementa — reescrevê-lo na API é assumir risco sem contrapartida. A Option C é eliminada por inviabilizar o *unlisted* da Fase 04. O ponto fraco reconhecido da A é o controle de acesso virar janela temporal: mitiga-se com expiração curta (minutos) e mantendo a validação de status/visibilidade no endpoint que emite o redirect — o que também dá o gancho natural para contagem de views na Fase 05.
 
-**Decision:** _[pending]_
+**Decision:** A (Redirect para URL pré-assinada de GET)
 
 ---
 
@@ -271,7 +271,7 @@ _Subprojects in scope:_
 
 **Recommendation:** **Option A — enum no banco somado ao retry nativo do BullMQ.** A Option C é eliminada por acoplar leitura de vídeo à disponibilidade do Redis e por perder o estado quando o job expira — a Fase 04 precisa listar vídeos por status, e isso tem que ser uma consulta SQL. A Option B resolve um problema de auditoria que o enunciado não pede, ao custo de infraestrutura de máquina de estados para cinco estados lineares. A Option A entrega o essencial com o que a stack já oferece. Três pontos que o plano precisa fixar explicitamente, porque são onde esse desenho costuma falhar: **(1)** distinguir falha transitória (repetir) de permanente (marcar `failed` sem gastar tentativas); **(2)** a guarda de idempotência no início do handler, já que a entrega é *at-least-once*; **(3)** o job precisa ser enfileirado **depois** do commit da transação que muda o status, senão o worker pode buscar uma linha que ainda não existe — condição de corrida clássica e difícil de reproduzir.
 
-**Decision:** _[pending]_
+**Decision:** A (Enum no banco + retry nativo do BullMQ)
 
 ---
 
@@ -279,14 +279,14 @@ _Subprojects in scope:_
 
 | ID | Scope | Decision | Recommendation | Choice |
 |----|-------|----------|---------------|--------|
-| TD-01 | Backend | Tecnologia de fila | A — BullMQ sobre Redis (`@nestjs/bullmq` 11) | _[pending]_ |
-| TD-02 | Backend | Organização de buckets e chaves | B — buckets separados por finalidade | _[pending]_ |
-| TD-03 | Backend | Protocolo de upload de até 10GB | A — multipart com URLs pré-assinadas por parte | _[pending]_ |
-| TD-04 | Backend | Execução do worker | A — container separado, mesma base de código | _[pending]_ |
-| TD-05 | Backend | Extração de metadados e thumbnail | A — `child_process` direto (`fluent-ffmpeg` está arquivado) | _[pending]_ |
-| TD-06 | Backend | Identificador público do vídeo | B — slug curto aleatório em coluna própria | _[pending]_ |
-| TD-07 | Backend | Streaming e download | A — redirect para URL pré-assinada de `GET` | _[pending]_ |
-| TD-08 | Backend | Ciclo de status, retry e idempotência | A — enum no banco + retry nativo do BullMQ | _[pending]_ |
+| TD-01 | Backend | Tecnologia de fila | A — BullMQ sobre Redis (`@nestjs/bullmq` 11) | A |
+| TD-02 | Backend | Organização de buckets e chaves | B — buckets separados por finalidade | B |
+| TD-03 | Backend | Protocolo de upload de até 10GB | A — multipart com URLs pré-assinadas por parte | A |
+| TD-04 | Backend | Execução do worker | A — container separado, mesma base de código | A |
+| TD-05 | Backend | Extração de metadados e thumbnail | A — `child_process` direto (`fluent-ffmpeg` está arquivado) | A |
+| TD-06 | Backend | Identificador público do vídeo | B — slug curto aleatório em coluna própria | B |
+| TD-07 | Backend | Streaming e download | A — redirect para URL pré-assinada de `GET` | A |
+| TD-08 | Backend | Ciclo de status, retry e idempotência | A — enum no banco + retry nativo do BullMQ | A |
 
 ## Notas para o `/plan-resolve`
 
