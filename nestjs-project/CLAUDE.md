@@ -35,10 +35,18 @@ Services:
 - `nestjs-api` — NestJS API, port `3000`
 - `db` — PostgreSQL 17, port `5432`, databases `streamtube` (dev) and `streamtube_test` (tests), user/password `streamtube`
 
-**`node_modules` is a named volume, not part of the bind mount.** Reading it through the Windows bind mount costs ~12s just to `require('@nestjs/core')` (vs ~200ms from the container filesystem), which made every Jest file take ~25s. Two consequences:
+**Two named volumes back this stack** — neither lives in the bind mount:
+
+| Volume | Mounted at | Why |
+|---|---|---|
+| `nestjs_node_modules` | `/home/node/app/node_modules` | Reading it through the Windows bind mount costs ~12s just to `require('@nestjs/core')` (vs ~200ms from the container filesystem), which made every Jest file take ~25s |
+| `streamtube_pgdata` | `/var/lib/postgresql/data` | Without it Postgres falls back to an **anonymous** volume, and a single `docker compose down` orphans the dev database |
+
+Consequences:
 
 - `node_modules` is **not visible on the host** — every `npm`/`npx` command must run inside the container (already the rule below).
-- After changing `package.json`, run `docker compose exec nestjs-api npm install` to update the volume. `docker compose down -v` wipes it and requires a reinstall.
+- After changing `package.json`, run `docker compose exec nestjs-api npm install` to update the volume.
+- Database data survives `docker compose down` and `docker system prune -a`. It is destroyed by **`docker compose down -v`** and **`docker volume prune`/`system prune --volumes`** — both explicitly destructive. Back up first with `docker compose exec -T db pg_dump -U streamtube -d streamtube > backup.sql`.
 
 All verification and teardown commands run on the **host machine**:
 

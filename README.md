@@ -81,7 +81,7 @@ Serviços disponíveis:
 | Mailpit (UI de e-mails) | http://localhost:8025 |
 | Swagger (opcional) | http://localhost:3000/api/docs — habilite com `SWAGGER_ENABLED=true` |
 
-> O `node_modules` do backend vive em um **volume Docker nomeado**, não no bind mount — lê-lo através do bind mount no Windows custava ~12s só para `require('@nestjs/core')`. Consequência prática: ele não é visível no host, e todo `npm`/`npx` roda dentro do container. Depois de alterar o `package.json`, rode `docker compose exec nestjs-api npm install` para atualizar o volume.
+> O backend usa dois **volumes Docker nomeados**, fora do bind mount: `nestjs_node_modules` (lê-lo através do bind mount no Windows custava ~12s só para `require('@nestjs/core')`) e `streamtube_pgdata` (os dados do Postgres). Consequências: o `node_modules` não é visível no host, então todo `npm`/`npx` roda dentro do container — depois de alterar o `package.json`, rode `docker compose exec nestjs-api npm install`. Os dados do banco sobrevivem a `docker compose down`; só `docker compose down -v` ou `docker volume prune` os destroem.
 
 ### 2. Frontend (Next.js)
 

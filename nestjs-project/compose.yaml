@@ -28,6 +28,13 @@ services:
       - POSTGRES_USER=streamtube
       - POSTGRES_PASSWORD=streamtube
       - POSTGRES_DB=streamtube
+    volumes:
+      # Without this, postgres:17 falls back to an ANONYMOUS volume: the data
+      # survives `stop`/`start` but a single `docker compose down` orphans it and
+      # the dev database is gone. A named volume survives `down` and
+      # `system prune -a`; only `down -v` / `prune --volumes` remove it, and both
+      # are explicitly destructive.
+      - streamtube_pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U streamtube"]
       interval: 5s
@@ -42,5 +49,6 @@ services:
 
 volumes:
   nestjs_node_modules:
+  streamtube_pgdata:
 
 
