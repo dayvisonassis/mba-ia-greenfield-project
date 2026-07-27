@@ -196,7 +196,7 @@ Entregar upload de vídeos de até 10GB sem passar o byte pela API, com pré-cad
 ### SI-03.7 — Endpoint `POST /videos`
 
 **Route:** POST /videos
-**Test Specs:** _pending /plan-test-specs_
+**Test Specs:** see `nestjs-project/specs/videos-initiate-upload.plan.md`
 **Authorization:** Owner (autenticado; cria sob o próprio canal) — per `### Authorization Matrix`
 
 **Description:** Expor a iniciação de upload por HTTP, com o contrato e os erros já fixados nas Technical Specifications.
@@ -257,7 +257,7 @@ Entregar upload de vídeos de até 10GB sem passar o byte pela API, com pré-cad
 ### SI-03.9 — Endpoint `POST /videos/:id/complete`
 
 **Route:** POST /videos/:id/complete
-**Test Specs:** _pending /plan-test-specs_
+**Test Specs:** see `nestjs-project/specs/videos-complete-upload.plan.md`
 **Authorization:** Owner — per `### Authorization Matrix`
 
 **Description:** Expor a conclusão do upload por HTTP, devolvendo `202` porque o processamento continua em segundo plano.
@@ -377,7 +377,7 @@ Entregar upload de vídeos de até 10GB sem passar o byte pela API, com pré-cad
 ### SI-03.13 — Endpoints de leitura e entrega
 
 **Route:** GET /videos/:slug · GET /videos/:slug/stream · GET /videos/:slug/download
-**Test Specs:** _pending /plan-test-specs_
+**Test Specs:** see `nestjs-project/specs/videos-delivery.plan.md`
 **Authorization:** Owner nas três rotas — per `### Authorization Matrix`
 
 **Description:** Expor a leitura do próprio vídeo e as duas rotas de entrega, ambas por `302` para URL pré-assinada.
