@@ -128,6 +128,11 @@ _Subprojects in scope:_
 
 **Decision:** A (Multipart com URLs pré-assinadas por parte)
 
+**Revisions:**
+
+- 2026-07-27 — A limpeza de multipart abandonado deixa de ser **lifecycle rule do bucket** e passa a ser **varredura própria da aplicação**, via `ListMultipartUploads` + `AbortMultipartUpload`. O protocolo de upload — a Option A, multipart com URLs pré-assinadas por parte — **não muda**. _Rationale:_ a `**Recommendation:**` desta TD fixava `PutBucketLifecycleConfigurationCommand` com `AbortIncompleteMultipartUpload` como obrigatório, mas o MinIO `RELEASE.2025-09-07T16-13-09Z` não implementa essa ação: recusa a regra com `InvalidArgument` quando ela é a única do rule, e a descarta **em silêncio** quando pareada com `Expiration` — tanto o `GetBucketLifecycleConfiguration` quanto o `mc ilm rule ls` devolvem a regra sem ela. O próprio CLI do MinIO explicita o critério ("at least one of Expiry, Transition, NoncurrentExpiry, NoncurrentVersionTransition actions should be specified in a rule") e não expõe flag de abort-incomplete. O objetivo original — não acumular partes órfãs invisíveis — é preservado integralmente pela varredura, que opera sobre o control-plane do S3 e **não move byte de vídeo**, mantendo intacto o critério de não passar o arquivo pela API. A decisão original não foi negligente: o context7 confirmou a API do **SDK**, que está correta; quem não implementa a ação é o **storage**, do outro lado do fio — só o teste de integração contra o serviço real podia revelar isso. Levantado durante o `/implement 03`, no SI-03.2, pela falha dos testes de integração contra o MinIO real.
+- 2026-07-27 — Parâmetro preservado do mecanismo superado. Fixa os três parâmetros de execução que a revisão anterior deixou em aberto: a varredura roda no container **`video-worker`** da TD-04, com **frequência horária**, e só aborta multipart cuja iniciação tenha **ao menos 24 horas**. _Rationale:_ a revisão anterior fixou o mecanismo e não os parâmetros, e a regra de lifecycle superada carregava resposta implícita para os três — o storage executava, na cadência dele, com `DaysAfterInitiation: 1`. **A idade mínima de 24h é literalmente esse `DaysAfterInitiation: 1`**, então não é requisito inventado: é o mesmo limiar da decisão original, agora explícito. É também o parâmetro que mais custa errar — encurtá-lo aborta upload legítimo ainda em curso, e um arquivo de 10GB em link lento leva horas. O worker é o destino natural por já ser o processo de trabalho em segundo plano da fase (a API é caminho de request, e trabalho agendado ali competiria com o atendimento); a frequência horária é suficiente porque upload abandonado não é urgente — o custo que ele impõe é storage, não disponibilidade. Levantado como `AMB-4` pelo `/plan-validate 03`.
+
 ---
 
 ## TD-04: Onde e como o worker de processamento roda
@@ -370,6 +375,10 @@ _Subprojects in scope:_
 
 **Decision:** A (@aws-sdk/client-s3 + @aws-sdk/s3-request-presigner)
 **Libraries:** @aws-sdk/client-s3, @aws-sdk/s3-request-presigner
+
+**Revisions:**
+
+- 2026-07-27 — Mecanismo renomeado por revisão de outra TD. Na enumeração das operações que o **endpoint interno** atende, `aplicar lifecycle` é substituído pela **varredura de multipart abandonado** (`ListMultipartUploads` + `AbortMultipartUpload`); o `e lifecycle rule` do heading desta TD fica igualmente superado. A `**Decision:**` — o par `@aws-sdk/client-s3` + `@aws-sdk/s3-request-presigner` — **não muda**, e as duas novas operações são do mesmo cliente, então nem a biblioteca nem a configuração de endpoint são afetadas. _Rationale:_ a revisão de 2026-07-27 na TD-03 trocou o mecanismo de limpeza, mas o vocabulário antigo sobreviveu aqui, numa TD que **não** foi revisada — e sem revisão abaixo dela nada corrige o leitor. É exatamente a forma da `IC-5` (prosa de uma TD nomeando mecanismo que outra TD já mudou), e o risco é concreto: o `/plan-build` transcreve prosa de TD para ação técnica, e escreveria um passo que não existe mais. Levantado como `IC-6` pelo `/plan-validate 03`.
 
 ---
 

@@ -5,7 +5,7 @@ test_specs_aware: true
 sources_mtime:
   docs/phases/phase-03-videos/context.md: "2026-07-27T02:13:56Z"
   docs/phases/phase-03-videos/library-refs.md: "2026-07-27T02:13:57Z"
-  docs/decisions/technical-decisions-phase-03-videos.md: "2026-07-27T02:10:44Z"
+  docs/decisions/technical-decisions-phase-03-videos.md: "2026-07-27T20:37:45Z"
   docs/decisions/technical-decisions-nestjs-test-infrastructure.md: "2026-07-25T21:24:34Z"
   docs/decisions/technical-decisions-openapi-docs-nestjs.md: "2026-07-27T01:44:14Z"
 ---
@@ -49,7 +49,7 @@ Entregar upload de vídeos de até 10GB sem passar o byte pela API, com pré-cad
 
 ---
 
-### SI-03.2 — Cliente S3: provedores, bootstrap de buckets e lifecycle rule
+### SI-03.2 — Cliente S3: provedores, bootstrap de buckets e varredura de multipart
 
 **Description:** Encapsular o acesso ao storage num módulo próprio, com os dois clientes que a fase exige e o provisionamento idempotente dos buckets.
 
@@ -59,21 +59,21 @@ Entregar upload de vídeos de até 10GB sem passar o byte pela API, com pré-cad
 2. Criar `src/storage/storage.module.ts` com dois provedores de `S3Client`: um com o endpoint **interno** para operações servidor→storage e um com o endpoint **público** usado apenas para assinar URLs entregues ao cliente; ambos com `forcePathStyle: true`, obrigatório contra MinIO (per `phase-03-videos/TD-10`).
 3. Criar `src/storage/storage.service.ts` expondo `createMultipartUpload`, `presignUploadPart`, `completeMultipartUpload`, `abortMultipartUpload`, `presignGetObject` e `putObject` — presign sempre via `getSignedUrl` do presigner com `expiresIn` explícito, nunca o default de 900s (per `phase-03-videos/TD-07`).
 4. Implementar bootstrap idempotente na inicialização: criar `streamtube-videos` e `streamtube-thumbnails` se ausentes, **ambos privados** — nenhuma policy pública é aplicada (per `phase-03-videos/TD-02` e sua revisão).
-5. Aplicar `PutBucketLifecycleConfigurationCommand` no bucket de vídeos com a regra `AbortIncompleteMultipartUpload`, expirando multipart incompleto (per `phase-03-videos/TD-03`).
+5. Expor `listMultipartUploads(bucket)` no `StorageService`, devolvendo os uploads em curso com sua data de iniciação — é a metade de leitura da varredura que o SI-03.16 executa; a metade de escrita (`abortMultipartUpload`) já é entregue pela ação 3 (per `phase-03-videos/TD-03` revision). **Não** aplicar lifecycle rule: o MinIO desta fase não implementa `AbortIncompleteMultipartUpload` — recusa a regra quando é a única ação e a descarta em silêncio quando pareada.
 
 **Tests:**
 
 | Artifact | Layer | Test file |
 |----------|-------|-----------|
 | `StorageModule` | Unit: compilation test | `src/storage/storage.module.spec.ts` |
-| `StorageService` | Integration com MinIO real: bootstrap idempotente, lifecycle rule aplicada e legível, round-trip de presign PUT/GET | `src/storage/storage.service.integration-spec.ts` |
+| `StorageService` | Integration com MinIO real: bootstrap idempotente, `listMultipartUploads` enxerga um multipart em curso e deixa de enxergá-lo após o abort, round-trip de presign PUT/GET | `src/storage/storage.service.integration-spec.ts` |
 
 **Dependencies:** SI-03.1 — os endpoints e credenciais vêm da config namedspaced criada lá.
 
 **Acceptance criteria:**
 
 - Subir a aplicação duas vezes seguidas não falha nem duplica buckets — o bootstrap é idempotente.
-- Ler a configuração de lifecycle do bucket `streamtube-videos` devolve uma regra com `AbortIncompleteMultipartUpload` habilitada.
+- Um multipart iniciado e não concluído aparece em `listMultipartUploads` com sua data de iniciação, e desaparece depois de `abortMultipartUpload` — é o par de operações sobre o qual a varredura do SI-03.16 se apoia.
 - Uma requisição anônima a um objeto de qualquer um dos dois buckets é recusada pelo storage — nenhum bucket é legível sem assinatura.
 - Uma URL pré-assinada de `GET` gerada pelo serviço aponta para o endpoint público, não para o nome de serviço do Compose.
 - A URL pré-assinada expira no prazo configurado: uma requisição após a expiração é recusada pelo storage.
@@ -232,7 +232,7 @@ Entregar upload de vídeos de até 10GB sem passar o byte pela API, com pré-cad
 1. Criar `src/videos/dto/complete-upload.dto.ts` validando o array `parts` conforme `#### Validation Rules`.
 2. Implementar `VideosService.completeUpload()`: recusar quando `processing_status` não é `uploading` (`INVALID_UPLOAD_STATE`); chamar `completeMultipartUpload` no storage e mapear recusa do storage para `INVALID_UPLOAD_PARTS`; dentro de uma transação, mover para `processing`, limpar `upload_id` e gravar o `size_bytes` real observado.
 3. Enfileirar `process-video` com payload `{ videoId }` **após** o commit da transação — nunca dentro dela (per `phase-03-videos/TD-08`).
-4. Implementar o caminho de abandono: `abortMultipartUpload` no storage quando a conclusão falha de forma irrecuperável, mantendo a lifecycle rule como rede de segurança para o que escapar.
+4. Implementar o caminho de abandono: `abortMultipartUpload` no storage quando a conclusão falha de forma irrecuperável. O que escapar deste caminho — cliente que some sem chamar a conclusão — é recolhido pela varredura do SI-03.16, que é a rede de segurança (per `phase-03-videos/TD-03` revision).
 
 **Tests:**
 
@@ -447,6 +447,36 @@ Entregar upload de vídeos de até 10GB sem passar o byte pela API, com pré-cad
 - Regerar o spec com a árvore limpa não produz diff — o arquivo commitado está em dia com o código.
 - O Swagger UI em `/api/docs` (com `SWAGGER_ENABLED=true`) lista as rotas de vídeo com o botão Authorize.
 - O `CLAUDE.md` e o `README.md` não citam arquivo, serviço ou comando inexistente.
+
+---
+
+### SI-03.16 — Varredura de multipart abandonado
+
+**Description:** Recolher os uploads multipart que o cliente iniciou e nunca concluiu, para que suas partes não fiquem ocupando storage de forma invisível. É a rede de segurança que a `phase-03-videos/TD-03` exigia e que originalmente seria uma lifecycle rule do bucket — mecanismo que o MinIO desta fase não implementa.
+
+**Technical actions:**
+
+1. Criar `src/videos/abandoned-upload-sweeper.service.ts` no container do worker: lista os multipart em curso do bucket de vídeos via `listMultipartUploads` (SI-03.2, ação 5) e chama `abortMultipartUpload` (SI-03.2, ação 3) em cada um cuja iniciação tenha **ao menos 24 horas** (per `phase-03-videos/TD-03` revision).
+2. Registrar a varredura como job repetível **horário** da fila BullMQ já criada no SI-03.5 — a TD-01 escolheu BullMQ justamente para que agendamento fosse configuração, não implementação; nenhum agendador novo entra no projeto.
+3. Extrair o limiar de 24h e a cadência horária para constantes nomeadas em `src/videos/`, ao lado do allowlist da TD-09 — mesmo princípio de uma constante com consumidores explícitos.
+4. Registrar em log cada abort executado, com o `uploadId` e a idade do upload; a varredura é destrutiva e precisa deixar rastro auditável.
+
+**Tests:**
+
+| Artifact | Layer | Test file |
+|----------|-------|-----------|
+| `AbandonedUploadSweeperService` | Unit: seleção por idade — aborta o que passou de 24h, preserva o que não passou (relógio injetado/fake) | `src/videos/abandoned-upload-sweeper.service.spec.ts` |
+| `AbandonedUploadSweeperService` | Integration com MinIO real: um multipart iniciado agora sobrevive à varredura; um com iniciação forjada além do limiar é abortado e some do `listMultipartUploads` | `src/videos/abandoned-upload-sweeper.service.integration-spec.ts` |
+
+**Dependencies:** SI-03.10 — a varredura roda no container do worker, que só existe a partir dali; e SI-03.2, de onde vêm `listMultipartUploads` e `abortMultipartUpload`.
+
+**Acceptance criteria:**
+
+- Um multipart iniciado há menos de 24 horas **não** é abortado pela varredura — é o caso que protege upload de 10GB ainda em curso num link lento.
+- Um multipart cuja iniciação passou de 24 horas é abortado, e deixa de aparecer no `listMultipartUploads` seguinte.
+- A varredura está registrada como job repetível horário na fila do SI-03.5 — não há agendador próprio, nem `setInterval` solto no processo.
+- O limiar e a cadência são constantes nomeadas, não literais espalhados pelo código.
+- Cada abort produz uma linha de log identificando o `uploadId` e a idade do upload recolhido.
 
 ---
 
@@ -731,7 +761,8 @@ SI-03.1 (root — Redis, MinIO e configs no Compose)
 │               └── SI-03.12 — depends on SI-03.11 (só vídeo `ready` é entregável)
 └── SI-03.5 — depends on SI-03.1 (host e porta do Redis vêm de queue.config.ts)
     └── SI-03.10 — depends on SI-03.5 (o worker consome a fila registrada)
-        └── SI-03.14 — depends on SI-03.10 (os gates apontam para o container do worker)
+        ├── SI-03.14 — depends on SI-03.10 (os gates apontam para o container do worker)
+        └── SI-03.16 — depends on SI-03.10 + SI-03.2 (varredura roda no worker, sobre as duas operações do storage)
 
 SI-03.3 (root, independente — entidade, enums e migration)
 └── SI-03.4 — depends on SI-03.3 (colisão de slug é checada contra o índice único)
@@ -746,7 +777,7 @@ Dois roots: **SI-03.1** (infraestrutura de fila e storage) e **SI-03.3** (modelo
 ## Deliverables
 
 - [ ] SI-03.1 — Infra: Redis, MinIO e configuração de ambiente
-- [ ] SI-03.2 — Cliente S3: provedores, bootstrap de buckets e lifecycle rule
+- [ ] SI-03.2 — Cliente S3: provedores, bootstrap de buckets e varredura de multipart
 - [ ] SI-03.3 — Entidade `Video`, enums e migration
 - [ ] SI-03.4 — Geração do identificador público único
 - [ ] SI-03.5 — Registro da fila BullMQ
@@ -760,6 +791,7 @@ Dois roots: **SI-03.1** (infraestrutura de fila e storage) e **SI-03.3** (modelo
 - [ ] SI-03.13 — Endpoints de leitura e entrega
 - [ ] SI-03.14 — Quality gates do worker
 - [ ] SI-03.15 — OpenAPI: decoradores explícitos e refresh do spec commitado
+- [ ] SI-03.16 — Varredura de multipart abandonado
 
 **Entregáveis da fase (`docs/project-plan.md`):**
 

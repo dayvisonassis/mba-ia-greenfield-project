@@ -3,7 +3,7 @@ kind: phase
 name: phase-03-videos
 sources_mtime:
   docs/project-plan.md: "2026-07-25T18:41:10Z"
-  docs/decisions/technical-decisions-phase-03-videos.md: "2026-07-27T02:10:44Z"
+  docs/decisions/technical-decisions-phase-03-videos.md: "2026-07-27T20:37:45Z"
   docs/decisions/technical-decisions-nestjs-test-infrastructure.md: "2026-07-25T21:24:34Z"
   docs/decisions/technical-decisions-openapi-docs-nestjs.md: "2026-07-27T01:44:14Z"
   docs/phases/phase-01-configuracao-base/context.md: "2026-07-25T18:41:10Z"
@@ -30,43 +30,47 @@ sources_mtime:
 - Reprodução via streaming (sem necessidade de download completo)
 - Download do vídeo pelo usuário
 
-**Out of scope:** _Not specified._
+**Out of scope:** _Not specified in `docs/project-plan.md`._
 
 **Deliverables:** upload de até 10GB funcional, processamento automático do vídeo, streaming funcionando, URLs únicas geradas.
 
-**Affected subprojects:** `nestjs-project/`
+**Affected subprojects:**
 
-**Deferred subprojects:** `next-frontend/` — a interface de vídeo (telas de upload, player, gerenciamento) não faz parte desta fase; o contrato HTTP produzido aqui é publicado via `openapi.json` e consumido pelo frontend nas Fases 04–05.
+- `nestjs-project` — `docs/project-plan.md` does not declare subprojects per phase; the capabilities (storage service, queue/background processing, upload, streaming/download endpoints) are all backend-side.
 
-> `project-plan.md` não declara subprojetos em fase alguma — `plan-reader` reportou `_Not declared._`, e o campo é preenchido aqui, como nas Fases 01 e 02. A atribuição acima deriva das 9 capabilities (todas de backend: storage, fila, worker, entidade, endpoints) e do enunciado da fase, que define a entrega como API, worker e infraestrutura.
+**Deferred subprojects:**
 
-**Sequencing notes:** `> Depende de: Fase 01, Fase 02` — Fase 03 is itself a declared dependency of Fase 04 (`> Depende de: Fase 02, Fase 03`) and Fase 05 (`> Depende de: Fase 03, Fase 04`). Phase framing sentence: "Upload de arquivos grandes sem travar o sistema, processamento automático do vídeo e geração de URL única."
+- `next-frontend` — the challenge statement scopes phase 03 as backend-only ("a interface de vídeo não faz parte do escopo desta fase"). No capability in this phase describes a screen or component. The HTTP contract produced here is published via `openapi.json` and consumed by the frontend in phases 04–05.
+
+**Sequencing notes:** "> Depende de: Fase 01, Fase 02" — phase 03 requires base project setup (phase 01) and account/auth (phase 02). Framing sentence: "Upload de arquivos grandes sem travar o sistema, processamento automático do vídeo e geração de URL única."
 
 **Neighbors (for boundary detection only):**
 
-- **Phase 02:** `### Fase 02 — Cadastro, Login e Gerenciamento de Conta` — `> Depende de: Fase 01`
-- **Phase 04:** `### Fase 04 — Gerenciamento de Vídeos e Canal` — `> Depende de: Fase 02, Fase 03`
+- **Phase 02:** Cadastro, Login e Gerenciamento de Conta — "Depende de: Fase 01"
+- **Phase 04:** Gerenciamento de Vídeos e Canal — "Depende de: Fase 02, Fase 03"
 
 ## Decisions Index
 
 | Ref | Source | Scope | Topic | Status | Decision | Libraries | Renders in |
 |-----|--------|-------|-------|--------|----------|-----------|------------|
 | phase-03-videos/TD-01 | phase | Backend | Tecnologia de fila para o processamento em segundo plano | decided | A (BullMQ sobre Redis) | bullmq, @nestjs/bullmq | — |
-|     └─ Last revision: 2026-07-26 — Registra no campo `**Libraries:**` as bibliotecas que a Recommendation já… | | | | | | | |
+|     └─ Last revision: 2026-07-26 — Registra no campo `**Libraries:**` as bibliotecas que a Recommendation já nomeav… | | | | | | | |
 | phase-03-videos/TD-02 | phase | Backend | Organização de buckets e chaves no object storage | decided | B (Buckets separados por finalidade) | — | — |
-|     └─ Last revision: 2026-07-26 — A chave do objeto de vídeo passa a ser **sem extensão**: `{videoId}/source`… | | | | | | | |
+|     └─ Last revision: 2026-07-26 — A chave do objeto de vídeo passa a ser **sem extensão**: `{videoId}/source` (o t… | | | | | | | |
 | phase-03-videos/TD-03 | phase | Backend | Protocolo de upload de arquivos de até 10GB | decided | A (Multipart com URLs pré-assinadas por parte) | — | — |
+|     └─ Last revision: 2026-07-27 — Parâmetro preservado do mecanismo superado. Fixa os três parâmetros de execução… | | | | | | | |
 | phase-03-videos/TD-04 | phase | Backend | Onde e como o worker de processamento roda | decided | A (Container separado, mesma base de código) | — | — |
-|     └─ Last revision: 2026-07-26 — FFmpeg e ffprobe passam a ser instalados **também na imagem da API/dev**, não… | | | | | | | |
+|     └─ Last revision: 2026-07-26 — FFmpeg e ffprobe passam a ser instalados **também na imagem da API/dev**, não ap… | | | | | | | |
 | phase-03-videos/TD-05 | phase | Backend | Ferramenta de extração de metadados e geração de thumbnail | decided | A (child_process chamando ffmpeg/ffprobe direto) | — | — |
-|     └─ Last revision: 2026-07-26 — Fixa os metadados que a fase **persiste** a partir da saída de `ffprobe… | | | | | | | |
+|     └─ Last revision: 2026-07-26 — Fixa os metadados que a fase **persiste** a partir da saída de `ffprobe -print_f… | | | | | | | |
 | phase-03-videos/TD-06 | phase | Backend | Identificador público único por vídeo | decided | B (Slug curto aleatório em coluna própria) | — | — |
 | phase-03-videos/TD-07 | phase | Backend | Estratégia de entrega — streaming e download | decided | A (Redirect para URL pré-assinada de GET) | — | — |
-|     └─ Last revision: 2026-07-26 — Fixa o ator das rotas de streaming e download nesta fase: **autenticado e… | | | | | | | |
+|     └─ Last revision: 2026-07-26 — Fixa o ator das rotas de streaming e download nesta fase: **autenticado e restri… | | | | | | | |
 | phase-03-videos/TD-08 | phase | Backend | Ciclo de status, retry, dead letter e idempotência | decided | A (Enum no banco + retry nativo do BullMQ) | — | — |
-|     └─ Last revision: 2026-07-26 — Separa dois eixos que estavam implícitos num só: `processing_status` (o enum… | | | | | | | |
+|     └─ Last revision: 2026-07-26 — Separa dois eixos que estavam implícitos num só: `processing_status` (o enum des… | | | | | | | |
 | phase-03-videos/TD-09 | phase | Backend | Política de inputs aceitos e onde ela é validada | decided | A (Declaração validada na iniciação + verificação real no worker) | — | — |
-| phase-03-videos/TD-10 | phase | Backend | Cliente S3 para Node — presign de parte, presign de GET e… | decided | A (@aws-sdk/client-s3 + @aws-sdk/s3-request-presigner) | @aws-sdk/client-s3, @aws-sdk/s3-request-presigner | — |
+| phase-03-videos/TD-10 | phase | Backend | Cliente S3 para Node — presign de parte, presign de GET… | decided | A (@aws-sdk/client-s3 + @aws-sdk/s3-request-presigner) | @aws-sdk/client-s3, @aws-sdk/s3-request-presigner | — |
+|     └─ Last revision: 2026-07-27 — Mecanismo renomeado por revisão de outra TD. Na enumeração das operações que o… | | | | | | | |
 
 _Source files:_
 
@@ -109,6 +113,10 @@ _Source files:_
 
 **Recommendation:** A Option B está tecnicamente eliminada: 5GB não atende a um requisito de 10GB, e isso é limite do protocolo, não de configuração. Entre A e C, A não acrescenta serviço algum ao Compose e mantém o byte indo direto do cliente ao storage, que é exatamente o que o critério de reprova exige. Duas consequências de implementação precisam ser tratadas no plano, não descobertas depois: **(1)** as URLs pré-assinadas são consumidas pelo *cliente*, então precisam apontar para um endereço que o cliente alcança — o nome de serviço do Compose (`minio:9000`) resolve dentro da rede Docker mas não do navegador, o que exige configurar o endpoint público do MinIO separadamente do endpoint interno; **(2)** um lifecycle rule para expirar multipart incompleto é obrigatório, senão uploads abandonados acumulam partes órfãs silenciosamente.
 **Libraries:** —
+
+**Revisions:**
+- 2026-07-27 — A limpeza de multipart abandonado deixa de ser **lifecycle rule do bucket** e passa a ser **varredura própria da aplicação**, via `ListMultipartUploads` + `AbortMultipartUpload`. O protocolo de upload — a Option A, multipart com URLs pré-assinadas por parte — **não muda**. _Rationale:_ a `**Recommendation:**` desta TD fixava `PutBucketLifecycleConfigurationCommand` com `AbortIncompleteMultipartUpload` como obrigatório, mas o MinIO `RELEASE.2025-09-07T16-13-09Z` não implementa essa ação: recusa a regra com `InvalidArgument` quando ela é a única do rule, e a descarta **em silêncio** quando pareada com `Expiration` — tanto o `GetBucketLifecycleConfiguration` quanto o `mc ilm rule ls` devolvem a regra sem ela. O próprio CLI do MinIO explicita o critério ("at least one of Expiry, Transition, NoncurrentExpiry, NoncurrentVersionTransition actions should be specified in a rule") e não expõe flag de abort-incomplete. O objetivo original — não acumular partes órfãs invisíveis — é preservado integralmente pela varredura, que opera sobre o control-plane do S3 e **não move byte de vídeo**, mantendo intacto o critério de não passar o arquivo pela API. A decisão original não foi negligente: o context7 confirmou a API do **SDK**, que está correta; quem não implementa a ação é o **storage**, do outro lado do fio — só o teste de integração contra o serviço real podia revelar isso. Levantado durante o `/implement 03`, no SI-03.2, pela falha dos testes de integração contra o MinIO real.
+- 2026-07-27 — Parâmetro preservado do mecanismo superado. Fixa os três parâmetros de execução que a revisão anterior deixou em aberto: a varredura roda no container **`video-worker`** da TD-04, com **frequência horária**, e só aborta multipart cuja iniciação tenha **ao menos 24 horas**. _Rationale:_ a revisão anterior fixou o mecanismo e não os parâmetros, e a regra de lifecycle superada carregava resposta implícita para os três — o storage executava, na cadência dele, com `DaysAfterInitiation: 1`. **A idade mínima de 24h é literalmente esse `DaysAfterInitiation: 1`**, então não é requisito inventado: é o mesmo limiar da decisão original, agora explícito. É também o parâmetro que mais custa errar — encurtá-lo aborta upload legítimo ainda em curso, e um arquivo de 10GB em link lento leva horas. O worker é o destino natural por já ser o processo de trabalho em segundo plano da fase (a API é caminho de request, e trabalho agendado ali competiria com o atendimento); a frequência horária é suficiente porque upload abandonado não é urgente — o custo que ele impõe é storage, não disponibilidade. Levantado como `AMB-4` pelo `/plan-validate 03`.
 
 ### phase-03-videos/TD-04
 
@@ -154,6 +162,7 @@ _Source files:_
 - **Verificação do worker:** `format_name` do `ffprobe` compatível com o allowlist **e** existência de ao menos um stream de vídeo. Falhar qualquer uma das duas → `failed` permanente, sem consumir `attempts`.
 - **Sem limite de duração.** Nenhuma capability da fase pede um, e o enunciado fixa o limite em tamanho (10GB), não em tempo. Um teto de duração seria requisito sem origem identificável.
 - **Uma constante, dois consumidores.** O allowlist mora num único módulo de `src/videos/` importado pela API e pelo worker — a TD-04 mantém os dois na mesma base de código, então a divergência que é o `Con` da Option A se resolve por construção, não por disciplina.
+
 **Libraries:** —
 
 ### phase-03-videos/TD-10
@@ -162,7 +171,11 @@ _Source files:_
 - **Dois endpoints, um cliente.** `endpoint: http://minio:9000` (nome de serviço do Compose, como o `CLAUDE.md` exige) para o que o servidor faz por conta própria — criar buckets, aplicar lifecycle, iniciar e completar multipart; e um endpoint público, vindo de env própria, para **assinar** as URLs que o navegador vai consumir. É a armadilha nº 1 da TD-03 resolvida por configuração explícita, e não é licença para `localhost` em host de serviço: é um segundo valor, declarado, com finalidade única.
 - **`forcePathStyle: true`** é obrigatório contra MinIO — sem ele o SDK monta URL virtual-hosted (`bucket.minio:9000`), que não resolve na rede do Compose.
 - Versão a fixar em `library-refs.md` pelo `/plan-resolve`. O context7 confirmou o **formato da API** (`getSignedUrl`, `UploadPartCommand`, `PutBucketLifecycleConfigurationCommand`, `endpoint` + `forcePathStyle`); a versão exata continua sendo item de confirmação daquele estágio.
+
 **Libraries:** @aws-sdk/client-s3, @aws-sdk/s3-request-presigner
+
+**Revisions:**
+- 2026-07-27 — Mecanismo renomeado por revisão de outra TD. Na enumeração das operações que o **endpoint interno** atende, `aplicar lifecycle` é substituído pela **varredura de multipart abandonado** (`ListMultipartUploads` + `AbortMultipartUpload`); o `e lifecycle rule` do heading desta TD fica igualmente superado. A `**Decision:**` — o par `@aws-sdk/client-s3` + `@aws-sdk/s3-request-presigner` — **não muda**, e as duas novas operações são do mesmo cliente, então nem a biblioteca nem a configuração de endpoint são afetadas. _Rationale:_ a revisão de 2026-07-27 na TD-03 trocou o mecanismo de limpeza, mas o vocabulário antigo sobreviveu aqui, numa TD que **não** foi revisada — e sem revisão abaixo dela nada corrige o leitor. É exatamente a forma da `IC-5` (prosa de uma TD nomeando mecanismo que outra TD já mudou), e o risco é concreto: o `/plan-build` transcreve prosa de TD para ação técnica, e escreveria um passo que não existe mais. Levantado como `IC-6` pelo `/plan-validate 03`.
 
 ## Inherited Decisions Detail
 
@@ -299,6 +312,7 @@ _Source files:_
 
 **Recommendation:** **Option A (`@nestjs/swagger`)** — é a única opção que preserva as decisões anteriores (`class-validator` em TD-06 de phase-02-auth) sem re-platform; o CLI plugin com `classValidatorShim: true` aproveita os decoradores `class-validator` existentes para inferir schemas, mantendo o boilerplate baixo. Nestia tem mérito técnico real mas o custo de migração do stack de validação inviabiliza-a sem uma decisão upstream de supersede de TD-06. Manual authoring é descartado.
 **Libraries:** @nestjs/swagger
+
 **Revisions:**
 - 2026-05-12 — Esclarece que o CLI plugin (`classValidatorShim: true`) cobre apenas inferência de schemas de DTOs a partir de `class-validator`; documentação de operações, respostas tipadas por status code, contratos de erro (alinhados ao envelope de phase-02-auth/TD-07) e exemplos exigem decoradores explícitos (`@ApiOperation`, `@ApiResponse`, `@ApiBody`, `@ApiParam`, `@ApiQuery`, `@ApiExtraModels`). _Rationale:_ openapi.json gerado pelo bootstrap atual está genérico — sem detalhes de parâmetros, schemas de retorno por status, nem contratos de erro — porque a base instalada se apoiou só na introspecção automática. Esta revisão fixa que enriquecimento via decoradores explícitos faz parte da Option A escolhida, não é trabalho fora do escopo do TD.
 
@@ -306,6 +320,9 @@ _Source files:_
 
 **Recommendation:** **Option C (Ambos)** — o custo marginal sobre Option A é apenas um npm script (~15 linhas) e o benefício é uma fundação correta para futura integração FE (codegen offline) sem perder a UI interativa que dev/QA usam. Option B sozinho pune a experiência de desenvolvimento em dev/local; Option A sozinho compromete o pipeline de codegen futuro. Combinar é dominante.
 **Libraries:** —
+
+**Revisions:**
+- 2026-07-26 — Fixa que **toda fase que adiciona ou altera endpoint é dona de regerar e commitar o `openapi.json`**, com os decoradores explícitos que a revisão de 2026-05-12 da TD-01 exige. Não é lembrete por fase: é obrigação permanente de quem mexe na superfície HTTP, e o `/plan-build` deve emiti-la nos Deliverables da fase. _Rationale:_ a Option C tornou o spec um artefato versionado e consumido — a TD-03 se apoia nele como "spec consultável fora da UI" e o codegen offline depende dele — mas nada dizia quem o mantém. A Fase 03 introduz upload, streaming e download e o deixaria descrevendo uma API que não existe mais: documentação contradizendo código, visível no diff da entrega. Levantado como `IC-3` pelo `/plan-validate 03`; a regra vale para as Fases 04–07.
 
 ### openapi-docs-nestjs/TD-03
 
@@ -321,16 +338,18 @@ _Source files:_
 - Database connection parameters (host, port, etc.) are sourced from a single `databaseConfig` factory — never duplicated between `AppModule` and `data-source.ts`. _(from phase 01)_
 - `TypeOrmModule.forRootAsync` is used (not `forRoot`), with `imports: [ConfigModule]`, `inject: [databaseConfig.KEY]`, `useFactory` returning options including `autoLoadEntities: true`, `synchronize: false`. _(from phase 01)_
 
+_Phase 01 contributes no `## Conventions to Match` of its own — its context.md records `_No inherited conventions — this is the first phase._`. The `phase-02-auth-frontend` slice likewise records no inherited conventions and contributes nothing to this list._
+
 ## Inherited Deferred Capabilities
 
 | Capability | Status | Origin phase | Rationale |
 |-----------|--------|--------------|-----------|
 | Telas de frontend | deferred | phase-01-configuracao-base | `next-frontend/` is not initialized in this phase; UI surfaces start in a later phase. |
 | Telas de cadastro, login, confirmação de conta e recuperação de senha | deferred | phase-02-auth | `next-frontend/` is not initialized in this phase; UI surfaces start in a later phase. |
-| "Confirmação de conta via e-mail com link de ativação" | deferred | phase-02-auth-frontend | deferred_to_next_phase — UI landing screen de-scoped 2026-05-14; FE confirmation flow (TD-07) picked up by a future phase. BE side unchanged in `phase-02-auth`. |
-| "Logout" | deferred | phase-02-auth-frontend | deferred_to_next_phase — logout button lives inside authenticated chrome (typically Phase 04). Phase 02 still implements POST `/api/auth/logout` (BFF route handler + `session.destroy()`) so the contract is ready when the chrome lands. |
-| "Recuperação de senha (destination screen / set-new-password)" | deferred | phase-02-auth-frontend | deferred_to_next_phase — `/forgot-password` ships this phase sending the e-mail; the reset-password destination screen is absent from Figma → link destination remains a 404 until a later phase delivers the screen via `/screen-inventory` extension run. Documented as a known gap. |
-| "Telas de cadastro, login, confirmação de conta e recuperação de senha" | deferred | phase-02-auth-frontend | a tela de confirmação da conta não será implementada nesta fase corrente, será adiada — the umbrella bullet's full coverage requires the confirmação and reset-password destination screens; both are deferred per Non-UI rows above. The 3 ship-this-phase telas (signup, login, forgot-password) are inventoried and covered by their own verbs; the umbrella bullet itself is deferred to the phase that lands the missing screens. |
+| "Confirmação de conta via e-mail com link de ativação" | deferred | phase-02-auth-frontend | deferred_to_next_phase — UI landing screen de-scoped 2026-05-14; FE confirmation flow (TD-07) picked up by a future phase. BE side unchanged in `phase-02-auth`. (TD refs: phase-02-auth-frontend/TD-07) |
+| "Logout" | deferred | phase-02-auth-frontend | deferred_to_next_phase — logout button lives inside authenticated chrome (typically Phase 04). Phase 02 still implements POST `/api/auth/logout` (BFF route handler + `session.destroy()`) so the contract is ready when the chrome lands. (TD refs: phase-02-auth-frontend/TD-01, phase-02-auth-frontend/TD-05) |
+| "Recuperação de senha (destination screen / set-new-password)" | deferred | phase-02-auth-frontend | deferred_to_next_phase — `/forgot-password` ships this phase sending the e-mail; the reset-password destination screen is absent from Figma → link destination remains a 404 until a later phase delivers the screen via `/screen-inventory` extension run. Documented as a known gap. (TD refs: phase-02-auth-frontend/TD-07) |
+| "Telas de cadastro, login, confirmação de conta e recuperação de senha" | deferred | phase-02-auth-frontend | a tela de confirmação da conta não será implementada nesta fase corrente, será adiada — the umbrella bullet's full coverage requires the confirmação and reset-password destination screens; both are deferred per Non-UI rows above. The 3 ship-this-phase telas (signup, login, forgot-password) are inventoried and covered by their own verbs; the umbrella bullet itself is deferred to the phase that lands the missing screens. (TD refs: phase-02-auth-frontend/TD-01, phase-02-auth-frontend/TD-04) |
 
 ## Non-UI / Deferred Capabilities
 
@@ -343,12 +362,12 @@ _None._
 | Artifact type | Required layers |
 |---------------|-----------------|
 | Entity (`*.entity.ts`) | Integration: constraints, defaults, `select: false` |
-| Service with branching + DB | Unit: branch logic (mock repo) + Integration: DB contract |
+| Service with branching + DB | Unit: branch logic (mocked repo) + Integration: DB contract |
 | Service with DB only (no branching) | Integration: DB contract |
 | Service with configured lib (JWT, cache) | Unit: real lib with test config |
-| Service with side-effect dep (email, storage) | Integration: real capture service (Mailpit) or local adapter |
+| Service with side-effect dep (email, storage, queue) | Integration: real capture service (Mailpit) or real adapter — never a mock of what the Compose stack runs |
 | Module with configured imports | Unit: compilation test |
-| Controller | E2E only — do NOT write unit tests |
+| Controller | **E2E only** — do NOT write unit tests |
 | DTO | E2E: one validation wiring test per endpoint |
 | Guard (delegates to service for business logic) | E2E + Unit if complex internal logic |
 | Guard (simple, delegates to Passport) | E2E only |
@@ -358,10 +377,8 @@ _None._
 | Exception Filter | Unit + E2E |
 | Middleware | E2E |
 
-_Suffixes: `*.spec.ts` (unit), `*.integration-spec.ts` (integration, real DB), `*.e2e-spec.ts` (E2E via supertest, under `nestjs-project/test/`)._
-
-_External systems policy (`references/external-systems.md`): PostgreSQL, message queue and email run **real** in Docker for integration tests — do not mock what the Compose stack can run for real._
+_Suffixes: `*.spec.ts` (unit), `*.integration-spec.ts` (integration against the real DB / real Compose services), `*.e2e-spec.ts` (full HTTP cycle via supertest, in `nestjs-project/test/`). Integration and e2e run with `--runInBand`._
 
 ### next-frontend
 
-_Deferred subproject — no work in this phase; testing requirements not applicable._
+_Deferred subproject — no video UI in this phase; testing requirements will apply when phases 04–05 deliver the screens._
