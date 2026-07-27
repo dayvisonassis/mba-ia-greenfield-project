@@ -28,6 +28,17 @@ function isPgUniqueViolationOnColumn(err: unknown, column: string): boolean {
 export class ChannelsService {
   constructor(private readonly dataSource: DataSource) {}
 
+  /**
+   * Phase 02 creates exactly one channel per user, so this resolves the caller's
+   * channel from the authenticated user id. Returns `null` when absent — the
+   * caller decides whether that is an error in its own context.
+   */
+  async findByUserId(userId: string): Promise<Channel | null> {
+    return this.dataSource
+      .getRepository(Channel)
+      .findOne({ where: { user_id: userId } });
+  }
+
   async createChannel(userId: string, email: string): Promise<Channel> {
     const baseNickname = sanitizeNickname(email.split('@')[0]);
 
