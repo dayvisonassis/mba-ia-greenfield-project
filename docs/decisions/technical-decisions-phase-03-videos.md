@@ -1,7 +1,7 @@
 ---
 scope_type: phase
 related_phases: [3]
-status: pending
+status: decided
 date: 2026-07-25
 scope_description: "Upload, armazenamento e processamento assíncrono de vídeos: tecnologia de fila, organização do object storage, protocolo de upload de até 10GB sem passar pela API, execução do worker de processamento (metadados + thumbnail via FFmpeg), identificador público único por vídeo, entrega por streaming/download e o ciclo de status com tratamento de falha."
 ---
@@ -55,6 +55,11 @@ _Subprojects in scope:_
 **Recommendation:** **Option A — BullMQ sobre Redis.** A carga da fase é de dezenas de jobs por dia, então throughput não é critério de desempate — o que decide é qual opção entrega retry, backoff e dead letter com menos código próprio, e qual integra melhor com NestJS 11. BullMQ ganha nos dois: `@nestjs/bullmq` 11 é a integração oficial da mesma major do framework, e TD-08 vira configuração em vez de implementação. Kafka é descartável de saída — é event streaming resolvendo um problema que não existe aqui. RabbitMQ seria a escolha certa se a fase precisasse de roteamento por exchange ou garantias transacionais de entrega, e não precisa: é um único tipo de job, um único consumidor. Restaria o argumento de durabilidade, e ele se resolve habilitando persistência AOF no Redis — mais barato que adotar um broker novo. A familiaridade do usuário não é o motivo da escolha, mas reforça-a: reduz risco de operação num escopo que já é o maior da fase.
 
 **Decision:** A (BullMQ sobre Redis)
+**Libraries:** bullmq, @nestjs/bullmq
+
+**Revisions:**
+
+- 2026-07-26 — Registra no campo `**Libraries:**` as bibliotecas que a Recommendation já nomeava em prosa: `bullmq` e `@nestjs/bullmq`. FFmpeg e ffprobe (TD-04/TD-05) ficam deliberadamente **fora** do campo — são binários instalados pelo Dockerfile, não pacotes npm. _Rationale:_ o `library-refs.md` é montado a partir deste campo e o `/plan-build` o consome para redigir as ações técnicas; com o campo vazio a biblioteca não tem origem rastreável e a consulta obrigatória via context7 fica sem alvo. Levantado como `IC-1` pelo `/plan-validate 03`.
 
 ---
 
@@ -86,6 +91,11 @@ _Subprojects in scope:_
 **Recommendation:** **Option B — buckets separados por finalidade.** O critério decisivo é a fronteira de acesso, não a conveniência: thumbnail é servida a usuários anônimos e vídeo bruto nunca deve ser, e essa distinção fica muito mais difícil de errar quando é uma propriedade do bucket em vez de um prefixo dentro de um bucket compartilhado. Dentro de cada bucket, manter a chave com o `videoId` (`{videoId}/source.mp4`, `{videoId}/default.jpg`) preserva a inspecionabilidade que a Option C perde. O custo é provisionar dois buckets no bootstrap — trivial, e feito uma vez.
 
 **Decision:** B (Buckets separados por finalidade)
+
+**Revisions:**
+
+- 2026-07-26 — O bucket de thumbnails passa a ser **privado nesta fase**, servido pelo mesmo caminho da TD-07 (redirect para URL pré-assinada de `GET` + verificação de propriedade). A separação em dois buckets — a Option B — não muda; muda a propriedade de acesso do bucket de thumbnails, que vira público na fase que introduzir publicação (Fase 04). _Rationale:_ a justificativa original desta TD assumia serviço anônimo ("thumbnail é servida a usuários anônimos"), premissa que a revisão de 2026-07-26 da TD-07 invalidou para esta fase ao barrar acesso anônimo a conteúdo `draft`. O thumbnail não é conteúdo independente: a TD-05 o gera de um frame do próprio vídeo e esta TD o guarda ao lado da fonte, então um bucket público entregaria a anônimos um frame de vídeo restrito ao dono — exatamente a exposição que a TD-07 recusou. Fecha também a linha da Authorization Matrix que faltava para o thumbnail. Levantado como `IC-4` pelo `/plan-validate 03`.
+- 2026-07-26 — A chave do objeto de vídeo passa a ser **sem extensão**: `{videoId}/source` (o thumbnail segue `{videoId}/default.jpg`). O `Content-Type` guardado no objeto e a coluna `format_name` que a revisão da TD-05 persiste carregam a informação de contêiner. _Rationale:_ esta TD fixava `{videoId}/source.mp4` com extensão hardcoded, e a TD-09 decidiu aceitar `video/mp4` **e** `video/webm` — um WebM guardado numa chave chamada `source.mp4` é contradição que o implementador não resolve por convenção, e a chave entra no Data Model, no payload de Events/Messages e na assinatura do `GET` da TD-07. Extensão derivada do contêiner foi descartada por obrigar o worker a resolver a extensão antes de ler o objeto; estreitar o allowlist para MP4 foi descartado por reabrir parâmetro decidido um ciclo atrás e encolher o que a fase aceita. Levantado como `IC-5` pelo `/plan-validate 03`.
 
 ---
 
@@ -149,6 +159,10 @@ _Subprojects in scope:_
 
 **Decision:** A (Container separado, mesma base de código)
 
+**Revisions:**
+
+- 2026-07-26 — FFmpeg e ffprobe passam a ser instalados **também na imagem da API/dev**, não apenas na do worker. O worker segue em container separado — a Option A não muda. _Rationale:_ a suíte roda dentro do container `nestjs-api`, e a política de external systems (`testing-guide-nestjs-project`) proíbe mockar o que o Compose roda de verdade; sem o binário ali, o teste de integração do serviço de processamento só poderia mockar o `child_process`. Agravado pela TD-09, que fez o `ffprobe` ser o portão autoritativo dos inputs aceitos — a própria política de aceitação ficaria não-testável onde o binário não existe. As alternativas foram descartadas por custo: gate id separado no container do worker parte a suíte em dois lugares, mexendo justamente no requisito "suíte completa verde"; adaptador com mock estreita a política de não-mock. Levantado como `IC-2` pelo `/plan-validate 03`.
+
 ---
 
 ## TD-05: Ferramenta de extração de metadados e geração de thumbnail
@@ -179,6 +193,10 @@ _Subprojects in scope:_
 **Recommendation:** **Option A — invocação direta via `child_process`.** A Option B seria a escolha natural e é justamente a que precisa ser evitada: está arquivada. A Option C troca desempenho por uma conveniência que o container já resolve. Chamar `ffprobe`/`ffmpeg` diretamente custa uma camada fina de código, sem dependência que possa apodrecer, e o `ffprobe` devolvendo JSON nativamente elimina a parte historicamente frágil (parsing de saída textual). Usar `execFile` com array de argumentos, nunca `exec` com string interpolada — nome de arquivo vindo do usuário em linha de comando é vetor de injeção.
 
 **Decision:** A (child_process chamando ffmpeg/ffprobe direto)
+
+**Revisions:**
+
+- 2026-07-26 — Fixa os metadados que a fase **persiste** a partir da saída de `ffprobe -print_format json`: `duration_seconds`, `width`, `height`, `video_codec`, `audio_codec`, `format_name`, `size_bytes`, `bitrate`. Sem coluna com o JSON bruto — seria dado guardado sem consumidor identificado nesta fase. _Rationale:_ a capability nomeia apenas "duração e metadados", e o `/plan-build` precisa de colunas concretas para o Data Model e de um shape concreto para o payload de Events/Messages. Os três campos de codec/container não são opcionais: são o que torna verificável no banco a regra de aceitação da TD-09. Levantado como `AMB-3` pelo `/plan-validate 03`.
 
 ---
 
@@ -242,6 +260,10 @@ _Subprojects in scope:_
 
 **Decision:** A (Redirect para URL pré-assinada de GET)
 
+**Revisions:**
+
+- 2026-07-26 — Fixa o ator das rotas de streaming e download nesta fase: **autenticado e restrito ao dono do vídeo**. Ambas ficam sob o `JwtAuthGuard` global com verificação de propriedade, sem `@Public()`. _Rationale:_ consequência direta da revisão da TD-08 — se todo vídeo da Fase 03 nasce e permanece `draft` e a transição de publicação pertence à Fase 04, não existe vídeo publicado para servir a anônimo, e abrir a rota exporia rascunho de terceiro. A rota nasce estruturada para as Fases 04/05 relaxarem o gate quando `visibility = published`, sem reescrever o mecanismo. Fecha as linhas da Authorization Matrix que o plano precisa emitir. Levantado como `AMB-2` pelo `/plan-validate 03`.
+
 ---
 
 ## TD-08: Ciclo de status, retry, dead letter e idempotência
@@ -272,6 +294,10 @@ _Subprojects in scope:_
 **Recommendation:** **Option A — enum no banco somado ao retry nativo do BullMQ.** A Option C é eliminada por acoplar leitura de vídeo à disponibilidade do Redis e por perder o estado quando o job expira — a Fase 04 precisa listar vídeos por status, e isso tem que ser uma consulta SQL. A Option B resolve um problema de auditoria que o enunciado não pede, ao custo de infraestrutura de máquina de estados para cinco estados lineares. A Option A entrega o essencial com o que a stack já oferece. Três pontos que o plano precisa fixar explicitamente, porque são onde esse desenho costuma falhar: **(1)** distinguir falha transitória (repetir) de permanente (marcar `failed` sem gastar tentativas); **(2)** a guarda de idempotência no início do handler, já que a entrega é *at-least-once*; **(3)** o job precisa ser enfileirado **depois** do commit da transação que muda o status, senão o worker pode buscar uma linha que ainda não existe — condição de corrida clássica e difícil de reproduzir.
 
 **Decision:** A (Enum no banco + retry nativo do BullMQ)
+
+**Revisions:**
+
+- 2026-07-26 — Separa dois eixos que estavam implícitos num só: `processing_status` (o enum desta TD — `uploading → processing → ready | failed`) e `visibility` (coluna própria, default `draft`). São ortogonais. A Fase 03 **só ocupa `draft`** e não implementa transição de publicação; a coluna existe para a Fase 04 apenas acrescentar a transição. _Rationale:_ a capability "pré-cadastro automático do vídeo como rascunho ao iniciar o upload" não dizia se `rascunho` era estado de processamento ou de publicação. Um enum único produziria estados impossíveis ("publicado mas ainda processando") e exigiria migration na Fase 04 para separar. Publicar é capability da Fase 04 pelo `project-plan.md` — antecipá-la aqui seria escopo indevido. Levantado como `AMB-1` pelo `/plan-validate 03`.
 
 ---
 
@@ -307,7 +333,7 @@ _Subprojects in scope:_
 - **Sem limite de duração.** Nenhuma capability da fase pede um, e o enunciado fixa o limite em tamanho (10GB), não em tempo. Um teto de duração seria requisito sem origem identificável.
 - **Uma constante, dois consumidores.** O allowlist mora num único módulo de `src/videos/` importado pela API e pelo worker — a TD-04 mantém os dois na mesma base de código, então a divergência que é o `Con` da Option A se resolve por construção, não por disciplina.
 
-**Decision:** _[pending]_
+**Decision:** A (Declaração validada na iniciação + verificação real no worker)
 
 ---
 
@@ -342,7 +368,8 @@ _Subprojects in scope:_
 - **`forcePathStyle: true`** é obrigatório contra MinIO — sem ele o SDK monta URL virtual-hosted (`bucket.minio:9000`), que não resolve na rede do Compose.
 - Versão a fixar em `library-refs.md` pelo `/plan-resolve`. O context7 confirmou o **formato da API** (`getSignedUrl`, `UploadPartCommand`, `PutBucketLifecycleConfigurationCommand`, `endpoint` + `forcePathStyle`); a versão exata continua sendo item de confirmação daquele estágio.
 
-**Decision:** _[pending]_
+**Decision:** A (@aws-sdk/client-s3 + @aws-sdk/s3-request-presigner)
+**Libraries:** @aws-sdk/client-s3, @aws-sdk/s3-request-presigner
 
 ---
 
@@ -358,8 +385,8 @@ _Subprojects in scope:_
 | TD-06 | Backend | Identificador público do vídeo | B — slug curto aleatório em coluna própria | B |
 | TD-07 | Backend | Streaming e download | A — redirect para URL pré-assinada de `GET` | A |
 | TD-08 | Backend | Ciclo de status, retry e idempotência | A — enum no banco + retry nativo do BullMQ | A |
-| TD-09 | Backend | Política de inputs aceitos e ponto de validação | A — declaração validada na iniciação + verdade no worker | _[pending]_ |
-| TD-10 | Backend | Cliente S3 para Node | A — `@aws-sdk/client-s3` + `s3-request-presigner` | _[pending]_ |
+| TD-09 | Backend | Política de inputs aceitos e ponto de validação | A — declaração validada na iniciação + verdade no worker | A |
+| TD-10 | Backend | Cliente S3 para Node | A — `@aws-sdk/client-s3` + `s3-request-presigner` | A |
 
 ## Notas para o `/plan-resolve`
 
@@ -376,4 +403,4 @@ Bibliotecas a confirmar via **context7** e fixar em `library-refs.md` (versões 
 
 Sem dependência nova para TD-05 nem para TD-09: FFmpeg e ffprobe entram como binários no Dockerfile do worker, não como pacote npm. A TD-09 reaproveita o `ffprobe` da TD-05 como ponto de verificação — nenhum pacote adicional.
 
-**Pendências deste documento para o `/plan-resolve` preencher:** TD-09 e TD-10 estão em `_[pending]_` (por isso o `status:` do frontmatter voltou a `pending`). As oito primeiras seguem decididas e **não devem ser reabertas**.
+**Estado deste documento (2026-07-26, pós-`/plan-resolve 03`):** as 10 TDs estão decididas e o `status:` do frontmatter voltou a `decided`. TD-09 e TD-10 foram preenchidas com a Option A. Cinco TDs receberam bloco `**Revisions:**` no mesmo ciclo — TD-01 (bibliotecas registradas), TD-04 (FFmpeg também na imagem da API/dev), TD-05 (campos de metadados persistidos), TD-07 (ator das rotas de entrega) e TD-08 (separação `processing_status` × `visibility`) — cada uma citando a issue do `validation.md` que a originou. **Nenhuma decisão deve ser reaberta sem passar por `/decide` ou por novo `/research`.**

@@ -80,6 +80,10 @@ _Subprojects in scope:_
 
 **Decision:** C (Runtime UI + openapi.json exportado)
 
+**Revisions:**
+
+- 2026-07-26 — Fixa que **toda fase que adiciona ou altera endpoint é dona de regerar e commitar o `openapi.json`**, com os decoradores explícitos que a revisão de 2026-05-12 da TD-01 exige. Não é lembrete por fase: é obrigação permanente de quem mexe na superfície HTTP, e o `/plan-build` deve emiti-la nos Deliverables da fase. _Rationale:_ a Option C tornou o spec um artefato versionado e consumido — a TD-03 se apoia nele como "spec consultável fora da UI" e o codegen offline depende dele — mas nada dizia quem o mantém. A Fase 03 introduz upload, streaming e download e o deixaria descrevendo uma API que não existe mais: documentação contradizendo código, visível no diff da entrega. Levantado como `IC-3` pelo `/plan-validate 03`; a regra vale para as Fases 04–07.
+
 ---
 
 ## TD-03: Production Exposure Policy for Swagger UI
