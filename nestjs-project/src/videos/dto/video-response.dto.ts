@@ -22,6 +22,12 @@ export class VideoResponseDto {
   @ApiProperty({ description: 'Short public identifier used in URLs.' })
   slug: string;
 
+  @ApiProperty({
+    description:
+      'Display title. Derived from the filename when none was supplied at upload initiation.',
+  })
+  title: string;
+
   @ApiProperty()
   original_filename: string;
 
@@ -73,6 +79,7 @@ export function toVideoResponse(video: Video): VideoResponseDto {
   return {
     id: video.id,
     slug: video.slug,
+    title: video.title,
     original_filename: video.original_filename,
     processing_status: video.processing_status,
     visibility: video.visibility,

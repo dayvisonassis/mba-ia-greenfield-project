@@ -95,6 +95,7 @@ describe('video delivery (integration)', () => {
       videoRepository.create({
         channel_id: channelId,
         slug: `deliv${counter}`,
+        title: 'Test video',
         original_filename: originalFilename,
         declared_mime: 'video/mp4',
         declared_size_bytes: PAYLOAD.length,

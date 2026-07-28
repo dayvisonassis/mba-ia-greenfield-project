@@ -66,6 +66,15 @@ function sanitizeFilename(filename: string): string {
   return filename.replace(/[\r\n"\\]/g, '').trim() || 'video';
 }
 
+/**
+ * Title to store when the client sent none. Mirrors the backfill in the
+ * `AddVideoTitle` migration, so a row created here and a row migrated there end
+ * up with the same value for the same filename.
+ */
+export function deriveTitle(originalFilename: string): string {
+  return originalFilename.replace(/\.[^.]*$/, '').trim() || 'video';
+}
+
 export interface PresignedPart {
   part_number: number;
   url: string;
@@ -151,6 +160,7 @@ export class VideosService {
           id,
           channel_id: channelId,
           slug: generated,
+          title: dto.title?.trim() || deriveTitle(dto.original_filename),
           original_filename: dto.original_filename,
           declared_mime: dto.declared_mime,
           declared_size_bytes: dto.declared_size_bytes,

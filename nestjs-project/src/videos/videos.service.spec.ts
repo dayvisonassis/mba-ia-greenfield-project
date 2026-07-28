@@ -15,7 +15,7 @@ import { StorageService } from '../storage/storage.service';
 import { MAX_VIDEO_SIZE_BYTES } from './constants/accepted-video-formats';
 import { VIDEO_PROCESSING_QUEUE } from './video-queue.constants';
 import { VideoSlugService } from './video-slug.service';
-import { VideosService, choosePartSize } from './videos.service';
+import { VideosService, choosePartSize, deriveTitle } from './videos.service';
 
 const MIB = 1024 * 1024;
 
@@ -109,6 +109,53 @@ describe('VideosService.initiateUpload', () => {
     expect(saved.visibility).toBe('draft');
     expect(saved.upload_id).toBe('upload-id-1');
     expect(saved.id).toBe(result.id);
+  });
+
+  describe('title', () => {
+    async function savedTitleFor(dto: {
+      title?: string;
+      original_filename: string;
+    }): Promise<unknown> {
+      await service.initiateUpload('channel-1', {
+        ...dto,
+        declared_mime: 'video/mp4',
+        declared_size_bytes: 6 * MIB,
+      });
+      const saveCalls = save.mock.calls as [Record<string, unknown>][];
+      return saveCalls[0][0].title;
+    }
+
+    it('should store the title the client supplied', async () => {
+      await expect(
+        savedTitleFor({ title: 'Ferias 2026', original_filename: 'x.mp4' }),
+      ).resolves.toBe('Ferias 2026');
+    });
+
+    it('should derive the title from the filename when none is supplied', async () => {
+      // The capability is the *automatic* pre-registration of the draft, so a
+      // client holding only a file must still be able to start an upload.
+      await expect(
+        savedTitleFor({ original_filename: 'my holiday.mp4' }),
+      ).resolves.toBe('my holiday');
+    });
+
+    it('should treat a blank title as absent', async () => {
+      await expect(
+        savedTitleFor({ title: '   ', original_filename: 'holiday.mp4' }),
+      ).resolves.toBe('holiday');
+    });
+
+    it('should never store an empty title', async () => {
+      // A filename that is nothing but an extension leaves the derivation empty.
+      await expect(savedTitleFor({ original_filename: '.mp4' })).resolves.toBe(
+        'video',
+      );
+    });
+
+    it('should strip only the last extension', () => {
+      expect(deriveTitle('archive.tar.gz')).toBe('archive.tar');
+      expect(deriveTitle('no-extension')).toBe('no-extension');
+    });
   });
 
   it('should key the storage object on the video id with no extension', async () => {

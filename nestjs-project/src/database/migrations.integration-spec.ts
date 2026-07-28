@@ -7,6 +7,7 @@ import { Video } from '../videos/entities/video.entity';
 import { CreateUsersAndChannels1775687773260 } from './migrations/1775687773260-CreateUsersAndChannels';
 import { CreateAuthTokens1777579850478 } from './migrations/1777579850478-CreateAuthTokens';
 import { CreateVideos1785186637009 } from './migrations/1785186637009-CreateVideos';
+import { AddVideoTitle1785209037081 } from './migrations/1785209037081-AddVideoTitle';
 import { createTestDataSource } from '../test/create-test-data-source';
 
 const MANAGED_TABLES = [
@@ -31,10 +32,15 @@ describe('Database migrations (integration)', () => {
       [User, Channel, RefreshToken, VerificationToken, Video],
       {
         synchronize: false,
+        // Every migration on disk must be listed here. A missing one leaves
+        // this suite re-creating a schema older than the real one and, because
+        // it also drops the `migrations` bookkeeping table, poisons the shared
+        // test database for every later run.
         migrations: [
           CreateUsersAndChannels1775687773260,
           CreateAuthTokens1777579850478,
           CreateVideos1785186637009,
+          AddVideoTitle1785209037081,
         ],
       },
     );
@@ -61,8 +67,8 @@ describe('Database migrations (integration)', () => {
 
   afterAll(async () => {
     try {
-      // The second test undoes the last migration, leaving the videos table
-      // missing. Re-apply so the shared DB is fully migrated for later suites.
+      // The tests below undo migrations, leaving the videos table missing.
+      // Re-apply so the shared DB is fully migrated for later suites.
       await dataSource.runMigrations();
     } finally {
       // destroy() must run even if re-applying fails, otherwise the open pg
@@ -74,7 +80,7 @@ describe('Database migrations (integration)', () => {
   it('should apply all migrations and create every managed table', async () => {
     const ranMigrations = await dataSource.runMigrations();
 
-    expect(ranMigrations).toHaveLength(3);
+    expect(ranMigrations).toHaveLength(4);
 
     const result = await dataSource.query<{ table_name: string }[]>(
       `SELECT table_name FROM information_schema.tables
@@ -93,7 +99,25 @@ describe('Database migrations (integration)', () => {
     ]);
   });
 
-  it('should revert the last migration and remove the videos table with both enum types', async () => {
+  it('should revert the last migration and remove the title column', async () => {
+    await dataSource.undoLastMigration();
+
+    const columns = await dataSource.query<{ column_name: string }[]>(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'videos'
+         AND column_name = 'title'`,
+    );
+    expect(columns).toHaveLength(0);
+
+    // Only the column goes; the table this migration did not create stays.
+    const tables = await dataSource.query<{ table_name: string }[]>(
+      `SELECT table_name FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'videos'`,
+    );
+    expect(tables).toHaveLength(1);
+  });
+
+  it('should revert once more and remove the videos table with both enum types', async () => {
     await dataSource.undoLastMigration();
 
     const tables = await dataSource.query<{ table_name: string }[]>(

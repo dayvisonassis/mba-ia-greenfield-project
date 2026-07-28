@@ -55,6 +55,7 @@ describe('Video entity (integration)', () => {
     return {
       channel_id: channelId,
       slug,
+      title: 'Test video',
       original_filename: 'holiday.mp4',
       declared_mime: 'video/mp4',
       declared_size_bytes: 1_048_576,

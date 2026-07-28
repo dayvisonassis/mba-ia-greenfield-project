@@ -298,4 +298,35 @@ describe('videos-initiate-upload (e2e)', () => {
 
     await expect(videoRepository.count()).resolves.toBe(0);
   });
+
+  // 5. Título do rascunho
+  it('stores the supplied title on the pre-registered draft', async () => {
+    const token = await registerConfirmAndLogin('initiate7@example.com');
+
+    const res = await request(app.getHttpServer())
+      .post('/videos')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ ...validPayload, title: 'Ferias 2026' })
+      .expect(201);
+    trackUpload(res);
+
+    const row = await videoRepository.findOneByOrFail({ id: body(res).id! });
+    expect(row.title).toBe('Ferias 2026');
+  });
+
+  it('derives a title from the filename when the client sends none', async () => {
+    const token = await registerConfirmAndLogin('initiate8@example.com');
+
+    const res = await request(app.getHttpServer())
+      .post('/videos')
+      .set('Authorization', `Bearer ${token}`)
+      .send(validPayload)
+      .expect(201);
+    trackUpload(res);
+
+    // The draft is pre-registered automatically, so it must be presentable
+    // without the client having supplied anything beyond the file itself.
+    const row = await videoRepository.findOneByOrFail({ id: body(res).id! });
+    expect(row.title).toBe('holiday');
+  });
 });

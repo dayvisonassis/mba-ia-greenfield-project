@@ -22,6 +22,7 @@ import {
 interface VideoBody {
   id?: string;
   slug?: string;
+  title?: string;
   original_filename?: string;
   processing_status?: string;
   visibility?: string;
@@ -159,6 +160,7 @@ describe('videos-delivery (e2e)', () => {
       videoRepository.create({
         channel_id: channelId,
         slug: `dlv${counter}${Date.now().toString(36)}`.slice(0, 16),
+        title: 'Test video',
         original_filename: originalFilename,
         declared_mime: 'video/mp4',
         declared_size_bytes: PAYLOAD.length,
@@ -246,6 +248,7 @@ describe('videos-delivery (e2e)', () => {
 
     expect(body(res).id).toBe(video.id);
     expect(body(res).slug).toBe(video.slug);
+    expect(body(res).title).toBe('Test video');
     expect(body(res).original_filename).toBe('my holiday.mp4');
     expect(body(res).processing_status).toBe('ready');
     expect(body(res).visibility).toBe('draft');

@@ -955,6 +955,11 @@
       "InitiateUploadDto": {
         "type": "object",
         "properties": {
+          "title": {
+            "type": "string",
+            "description": "Display title. Optional: the capability in scope is the *automatic*\npre-registration of the draft, so a client that only has a file can still\nstart an upload — the title is then derived from the filename.",
+            "maxLength": 255
+          },
           "original_filename": {
             "type": "string",
             "maxLength": 255
@@ -1022,6 +1027,10 @@
             "type": "string",
             "description": "Short public identifier used in URLs."
           },
+          "title": {
+            "type": "string",
+            "description": "Display title. Derived from the filename when none was supplied at upload initiation."
+          },
           "original_filename": {
             "type": "string"
           },
@@ -1086,6 +1095,7 @@
         "required": [
           "id",
           "slug",
+          "title",
           "original_filename",
           "processing_status",
           "visibility",
