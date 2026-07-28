@@ -12,6 +12,8 @@ import {
   UploadPartCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { createWriteStream } from 'fs';
+import { pipeline } from 'stream/promises';
 import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import storageConfig from '../config/storage.config';
@@ -250,6 +252,33 @@ export class StorageService implements OnModuleInit {
       new HeadObjectCommand({ Bucket: bucket, Key: key }),
     );
     return response.ContentLength ?? 0;
+  }
+
+  /**
+   * Streams an object onto local disk through the INTERNAL client.
+   *
+   * The worker needs the file on disk for ffprobe/ffmpeg. Handing them a
+   * presigned URL instead would break: those are signed with the PUBLIC
+   * endpoint, which in development is `localhost:9000` and resolves to the
+   * worker container itself, not to storage.
+   */
+  async downloadToFile(
+    bucket: string,
+    key: string,
+    destinationPath: string,
+  ): Promise<void> {
+    const response = await this.internalClient.send(
+      new GetObjectCommand({ Bucket: bucket, Key: key }),
+    );
+
+    if (!response.Body) {
+      throw new Error(`Storage returned no body for "${bucket}/${key}"`);
+    }
+
+    await pipeline(
+      response.Body as NodeJS.ReadableStream,
+      createWriteStream(destinationPath),
+    );
   }
 
   /** Server-side write — used by the worker for the generated thumbnail. */

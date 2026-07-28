@@ -24,6 +24,25 @@ services:
       minio:
         condition: service_healthy
 
+  video-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    # No ports: the worker consumes the queue and exposes no HTTP surface.
+    volumes:
+      - .:/home/node/app
+      # The SAME named volume as the API — one npm install serves both, and the
+      # worker never needs its own dependency tree because it runs the same
+      # codebase (per phase-03-videos/TD-04).
+      - nestjs_node_modules:/home/node/app/node_modules
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
   db:
     image: postgres:17
     ports:

@@ -1,0 +1,23 @@
+FROM node:25.6.0-slim
+
+# Same base image as the API on purpose: the worker runs the same codebase
+# (per phase-03-videos/TD-04), so a divergent runtime would let code pass in
+# one container and fail in the other.
+# ffmpeg ships ffprobe as well — the worker needs both: ffprobe to read
+# metadata and enforce the accepted-format rule, ffmpeg to cut the thumbnail.
+RUN apt update && apt install -y procps ffmpeg
+
+WORKDIR /home/node/app
+
+# node_modules is a named volume shared with the API (see compose.yaml). Docker
+# seeds a fresh named volume from the image path, so the directory must already
+# exist here owned by `node` — otherwise the volume is created as root and
+# npm install fails EACCES.
+RUN mkdir -p /home/node/app/node_modules && chown -R node:node /home/node/app
+
+USER node
+
+# Same idle-container design as the API image: the process is started on demand
+# (`npm run start:worker`), which keeps the container up even when the code is
+# broken and lets tests run without competing with a live worker.
+CMD [ "tail", "-f", "/dev/null" ]

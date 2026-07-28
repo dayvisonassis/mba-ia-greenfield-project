@@ -8,6 +8,8 @@ import {
   InvalidUploadStateException,
   UnsupportedVideoFormatException,
   VideoNotFoundException,
+  VideoNotReadyException,
+  VideoProcessingFailedException,
   VideoTooLargeException,
 } from '../common/exceptions/domain.exception';
 import storageConfig from '../config/storage.config';
@@ -47,6 +49,23 @@ const MAX_PARTS = 10_000;
  */
 const UPLOAD_URL_EXPIRES_IN_SECONDS = 3600;
 
+/**
+ * Lifetime of the playback/download URLs. Short on purpose: with redirect-to-
+ * presigned-URL delivery the access control IS the time window, so a long-lived
+ * URL is a shareable bypass of the ownership check (per phase-03-videos/TD-07).
+ */
+const DELIVERY_URL_EXPIRES_IN_SECONDS = 300;
+
+/**
+ * The filename is user-supplied and lands inside a `Content-Disposition`
+ * header. Quotes would close the quoted-string early and CR/LF would split the
+ * header, so both are stripped rather than escaped — this value is a display
+ * name, not data anything parses.
+ */
+function sanitizeFilename(filename: string): string {
+  return filename.replace(/[\r\n"\\]/g, '').trim() || 'video';
+}
+
 export interface PresignedPart {
   part_number: number;
   url: string;
@@ -59,6 +78,12 @@ export interface InitiateUploadResult {
   part_size_bytes: number;
   parts: PresignedPart[];
   expires_in: number;
+}
+
+export interface CompleteUploadResult {
+  id: string;
+  slug: string;
+  processing_status: VideoProcessingStatus;
 }
 
 /**
@@ -179,7 +204,7 @@ export class VideosService {
     channelId: string,
     videoId: string,
     dto: CompleteUploadDto,
-  ): Promise<void> {
+  ): Promise<CompleteUploadResult> {
     const video = await this.dataSource.getRepository(Video).findOne({
       where: { id: videoId, channel_id: channelId },
     });
@@ -234,6 +259,86 @@ export class VideosService {
 
     // --- Transaction has committed. Only now may the job become observable. ---
     await this.queue.add(PROCESS_VIDEO_JOB, { videoId: video.id });
+
+    return {
+      id: video.id,
+      slug: video.slug,
+      processing_status: VideoProcessingStatus.PROCESSING,
+    };
+  }
+
+  /**
+   * Resolves a public slug to a video the caller owns.
+   *
+   * Slug and channel are matched in ONE query on purpose: a video belonging to
+   * another channel produces exactly the same result as a slug that does not
+   * exist, so the response cannot be used to probe which slugs are real (per
+   * `### Authorization Matrix`).
+   */
+  async findOwnBySlug(channelId: string, slug: string): Promise<Video> {
+    const video = await this.dataSource
+      .getRepository(Video)
+      .findOne({ where: { slug, channel_id: channelId } });
+
+    if (!video) {
+      throw new VideoNotFoundException();
+    }
+    return video;
+  }
+
+  /**
+   * Presigned `GET` for playback. The API answers with a redirect to this URL
+   * and never streams bytes itself, which is what leaves `Range`/`206` to the
+   * storage — correct range handling is subtle code that S3/MinIO already has
+   * (per phase-03-videos/TD-07).
+   */
+  async buildStreamUrl(channelId: string, slug: string): Promise<string> {
+    const video = await this.findDeliverable(channelId, slug);
+
+    return this.storage.presignGetObject(
+      this.config.videosBucket,
+      `${video.id}/source`,
+      { expiresIn: DELIVERY_URL_EXPIRES_IN_SECONDS },
+    );
+  }
+
+  /**
+   * Same object, but asking storage to send it as an attachment named after the
+   * file the user originally uploaded — the object key carries no filename.
+   */
+  async buildDownloadUrl(channelId: string, slug: string): Promise<string> {
+    const video = await this.findDeliverable(channelId, slug);
+
+    return this.storage.presignGetObject(
+      this.config.videosBucket,
+      `${video.id}/source`,
+      {
+        expiresIn: DELIVERY_URL_EXPIRES_IN_SECONDS,
+        responseContentDisposition: `attachment; filename="${sanitizeFilename(
+          video.original_filename,
+        )}"`,
+      },
+    );
+  }
+
+  /** Ownership plus the status gate both delivery routes share. */
+  private async findDeliverable(
+    channelId: string,
+    slug: string,
+  ): Promise<Video> {
+    const video = await this.findOwnBySlug(channelId, slug);
+
+    if (
+      video.processing_status === VideoProcessingStatus.UPLOADING ||
+      video.processing_status === VideoProcessingStatus.PROCESSING
+    ) {
+      throw new VideoNotReadyException();
+    }
+    if (video.processing_status === VideoProcessingStatus.FAILED) {
+      throw new VideoProcessingFailedException();
+    }
+
+    return video;
   }
 
   /**

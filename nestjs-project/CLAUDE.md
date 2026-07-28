@@ -34,6 +34,16 @@ docker compose exec nestjs-api npm run start:dev
 Services:
 - `nestjs-api` — NestJS API, port `3000`
 - `db` — PostgreSQL 17, port `5432`, databases `streamtube` (dev) and `streamtube_test` (tests), user/password `streamtube`
+- `redis` — Redis 8, port `6379`, AOF enabled — backs the `video-processing` BullMQ queue
+- `minio` — S3-compatible object storage, API on `9000` and console on `9001`, buckets `streamtube-videos` and `streamtube-thumbnails` (both private)
+- `video-worker` — consumes the `video-processing` queue. **No HTTP port**: it boots as a Nest application *context*, not a server. Runs the same codebase as the API from `Dockerfile.worker`, sharing the `nestjs_node_modules` volume, so one `npm install` serves both.
+
+**FFmpeg lives in both images.** `Dockerfile.worker` needs `ffmpeg`/`ffprobe` to do the work; `Dockerfile.dev` needs them because the test suite runs inside `nestjs-api` and the project forbids mocking what Compose runs for real.
+
+```bash
+# Start the worker (watch mode) — same on-demand pattern as the API
+docker compose exec -d video-worker npm run start:worker
+```
 
 **Two named volumes back this stack** — neither lives in the bind mount:
 
@@ -73,6 +83,7 @@ docker compose down
 
 ```bash
 npm run start:dev                        # Dev server with hot-reload
+npm run start:worker                     # Video worker (run in the video-worker container, not nestjs-api)
 npm run build                            # Compile to dist/
 npm run start:prod                       # Run compiled build
 

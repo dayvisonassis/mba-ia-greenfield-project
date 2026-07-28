@@ -776,43 +776,43 @@ Dois roots: **SI-03.1** (infraestrutura de fila e storage) e **SI-03.3** (modelo
 
 ## Deliverables
 
-- [ ] SI-03.1 — Infra: Redis, MinIO e configuração de ambiente
-- [ ] SI-03.2 — Cliente S3: provedores, bootstrap de buckets e varredura de multipart
-- [ ] SI-03.3 — Entidade `Video`, enums e migration
-- [ ] SI-03.4 — Geração do identificador público único
-- [ ] SI-03.5 — Registro da fila BullMQ
-- [ ] SI-03.6 — Serviço de iniciação de upload
-- [ ] SI-03.7 — Endpoint `POST /videos`
-- [ ] SI-03.8 — Conclusão do upload e enfileiramento pós-commit
-- [ ] SI-03.9 — Endpoint `POST /videos/:id/complete`
-- [ ] SI-03.10 — Worker: serviço no Compose, Dockerfile com FFmpeg e bootstrap
-- [ ] SI-03.11 — Processador de vídeo: metadados, thumbnail e classificação de falha
-- [ ] SI-03.12 — Serviço de entrega: URLs pré-assinadas com checagem de dono
-- [ ] SI-03.13 — Endpoints de leitura e entrega
-- [ ] SI-03.14 — Quality gates do worker
-- [ ] SI-03.15 — OpenAPI: decoradores explícitos e refresh do spec commitado
-- [ ] SI-03.16 — Varredura de multipart abandonado
+- [x] SI-03.1 — Infra: Redis, MinIO e configuração de ambiente
+- [x] SI-03.2 — Cliente S3: provedores, bootstrap de buckets e varredura de multipart
+- [x] SI-03.3 — Entidade `Video`, enums e migration
+- [x] SI-03.4 — Geração do identificador público único
+- [x] SI-03.5 — Registro da fila BullMQ
+- [x] SI-03.6 — Serviço de iniciação de upload
+- [x] SI-03.7 — Endpoint `POST /videos`
+- [x] SI-03.8 — Conclusão do upload e enfileiramento pós-commit
+- [x] SI-03.9 — Endpoint `POST /videos/:id/complete`
+- [x] SI-03.10 — Worker: serviço no Compose, Dockerfile com FFmpeg e bootstrap
+- [x] SI-03.11 — Processador de vídeo: metadados, thumbnail e classificação de falha
+- [x] SI-03.12 — Serviço de entrega: URLs pré-assinadas com checagem de dono
+- [x] SI-03.13 — Endpoints de leitura e entrega
+- [x] SI-03.14 — Quality gates do worker
+- [x] SI-03.15 — OpenAPI: decoradores explícitos e refresh do spec commitado
+- [x] SI-03.16 — Varredura de multipart abandonado
 
 **Entregáveis da fase (`docs/project-plan.md`):**
 
-- [ ] Upload de até 10GB funcional — o byte vai do cliente ao storage por multipart pré-assinado, sem transitar pelo processo Node
-- [ ] Processamento automático do vídeo — duração e metadados extraídos e thumbnail gerada sem intervenção
-- [ ] Streaming funcionando — `302` para URL pré-assinada, com `Range`/`206` honrado pelo storage
-- [ ] URLs únicas geradas — slug curto com índice único e tratamento de colisão
+- [x] Upload de até 10GB funcional — o byte vai do cliente ao storage por multipart pré-assinado, sem transitar pelo processo Node
+- [x] Processamento automático do vídeo — duração e metadados extraídos e thumbnail gerada sem intervenção
+- [x] Streaming funcionando — `302` para URL pré-assinada, com `Range`/`206` honrado pelo storage
+- [x] URLs únicas geradas — slug curto com índice único e tratamento de colisão
 
 **Infraestrutura real no Compose:**
 
-- [ ] `redis`, `minio` e `video-worker` sobem como serviços de verdade e são exercitados pelos testes de integração
-- [ ] `openapi.json` regerado e commitado, sem diff contra a árvore limpa
-- [ ] `CLAUDE.md` (raiz e `nestjs-project/`) e `README.md` descrevem o módulo de vídeos, as cinco rotas, os três serviços novos e o storage
+- [x] `redis`, `minio` e `video-worker` sobem como serviços de verdade e são exercitados pelos testes de integração
+- [x] `openapi.json` regerado e commitado, sem diff contra a árvore limpa
+- [x] `CLAUDE.md` (raiz e `nestjs-project/`) e `README.md` descrevem o módulo de vídeos, as cinco rotas, os três serviços novos e o storage
 
 **Full test suites:**
 
-- [ ] Backend tests pass (`docker compose exec nestjs-api npm test -- --runInBand`)
-- [ ] E2E tests pass (`docker compose exec nestjs-api npm run test:e2e`)
-- [ ] Type checks pass (`docker compose exec nestjs-api npx tsc --noEmit`)
-- [ ] Lint passes (`docker compose exec nestjs-api npm run lint`)
+- [x] Backend tests pass (`docker compose exec nestjs-api npm test -- --runInBand`)
+- [x] E2E tests pass (`docker compose exec nestjs-api npm run test:e2e`)
+- [x] Type checks pass (`docker compose exec nestjs-api npx tsc --noEmit`)
+- [x] Lint passes (`docker compose exec nestjs-api npm run lint`)
 
 **Quality gates** _(the executable form of the Definition of Done — see `GATES.md`)_:
 
-- [ ] Quality gates pass (`node scripts/run-gate.mjs`) — rodado da raiz do repo, depois dos checks por subprojeto acima, e já incluindo os gate ids do `video-worker` adicionados em SI-03.14.
+- [x] Quality gates pass (`node scripts/run-gate.mjs`) — rodado da raiz do repo, depois dos checks por subprojeto acima, e já incluindo os gate ids do `video-worker` adicionados em SI-03.14.

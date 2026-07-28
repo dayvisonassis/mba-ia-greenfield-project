@@ -13,6 +13,7 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
+    "start:worker": "nest start --watch --entryFile worker",
     "test": "DOTENV_CONFIG_PATH=.env.test jest --forceExit",
     "test:watch": "DOTENV_CONFIG_PATH=.env.test jest --watch",
     "test:cov": "DOTENV_CONFIG_PATH=.env.test jest --coverage --forceExit",
@@ -27,7 +28,7 @@
     "migration:generate": "npm run typeorm -- migration:generate -d src/database/data-source.ts",
     "migration:create": "npm run typeorm -- migration:create",
     "seed": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' src/database/seeds/seed.ts",
-    "openapi:export": "ts-node -r tsconfig-paths/register src/openapi-export.ts"
+    "openapi:export": "nest build && node dist/openapi-export.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1095.0",

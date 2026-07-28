@@ -6,6 +6,8 @@ import {
   InvalidUploadStateException,
   UnsupportedVideoFormatException,
   VideoNotFoundException,
+  VideoNotReadyException,
+  VideoProcessingFailedException,
   VideoTooLargeException,
 } from '../common/exceptions/domain.exception';
 import storageConfig from '../config/storage.config';
@@ -276,6 +278,175 @@ describe('VideosService.completeUpload', () => {
     expect(order).toEqual(['update', 'enqueue']);
     expect(queueAdd).toHaveBeenCalledWith('process-video', {
       videoId: 'video-1',
+    });
+  });
+});
+
+describe('VideosService delivery', () => {
+  let service: VideosService;
+  let findOne: jest.Mock;
+  let presignGetObject: jest.Mock;
+
+  const readyVideo = {
+    id: 'video-1',
+    slug: 'abc123',
+    channel_id: 'channel-1',
+    processing_status: 'ready',
+    original_filename: 'my holiday.mp4',
+  };
+
+  beforeEach(async () => {
+    findOne = jest.fn().mockResolvedValue(readyVideo);
+    presignGetObject = jest
+      .fn()
+      .mockResolvedValue('https://public.example/signed');
+
+    const module = await Test.createTestingModule({
+      providers: [
+        VideosService,
+        {
+          provide: DataSource,
+          useValue: { getRepository: () => ({ findOne }) },
+        },
+        { provide: StorageService, useValue: { presignGetObject } },
+        { provide: VideoSlugService, useValue: {} },
+        {
+          provide: storageConfig.KEY,
+          useValue: { videosBucket: 'streamtube-videos' },
+        },
+        {
+          provide: getQueueToken(VIDEO_PROCESSING_QUEUE),
+          useValue: { add: jest.fn() },
+        },
+      ],
+    }).compile();
+
+    service = module.get(VideosService);
+  });
+
+  describe('findOwnBySlug', () => {
+    it('should scope slug and channel in a single query', async () => {
+      await service.findOwnBySlug('channel-1', 'abc123');
+
+      // One query on both columns — not "find by slug, then compare owner",
+      // which would make the two cases distinguishable by timing or by bugs.
+      const calls = findOne.mock.calls as [
+        { where: { slug: string; channel_id: string } },
+      ][];
+      expect(calls[0][0].where).toEqual({
+        slug: 'abc123',
+        channel_id: 'channel-1',
+      });
+    });
+
+    it('should answer identically for an unknown slug and another channel slug', async () => {
+      findOne.mockResolvedValue(null);
+
+      const unknown: unknown = await service
+        .findOwnBySlug('channel-1', 'does-not-exist')
+        .catch((e: unknown) => e);
+      const foreign: unknown = await service
+        .findOwnBySlug('channel-1', 'belongs-to-someone-else')
+        .catch((e: unknown) => e);
+
+      expect(unknown).toBeInstanceOf(VideoNotFoundException);
+      expect(foreign).toBeInstanceOf(VideoNotFoundException);
+      // Nothing observable separates the two cases.
+      expect((unknown as Error).message).toBe((foreign as Error).message);
+    });
+  });
+
+  describe('status gate', () => {
+    it.each(['uploading', 'processing'])(
+      'should refuse delivery while %s',
+      async (status) => {
+        findOne.mockResolvedValue({ ...readyVideo, processing_status: status });
+
+        await expect(
+          service.buildStreamUrl('channel-1', 'abc123'),
+        ).rejects.toBeInstanceOf(VideoNotReadyException);
+        expect(presignGetObject).not.toHaveBeenCalled();
+      },
+    );
+
+    it('should refuse delivery of a failed video with its own code', async () => {
+      findOne.mockResolvedValue({
+        ...readyVideo,
+        processing_status: 'failed',
+      });
+
+      await expect(
+        service.buildDownloadUrl('channel-1', 'abc123'),
+      ).rejects.toBeInstanceOf(VideoProcessingFailedException);
+    });
+  });
+
+  describe('buildStreamUrl', () => {
+    it('should sign the source key with a short expiry and no disposition override', async () => {
+      await service.buildStreamUrl('channel-1', 'abc123');
+
+      const [bucket, key, options] = presignGetObject.mock.calls[0] as [
+        string,
+        string,
+        { expiresIn: number; responseContentDisposition?: string },
+      ];
+      expect(bucket).toBe('streamtube-videos');
+      expect(key).toBe('video-1/source');
+      // With redirect delivery the access control IS the time window.
+      expect(options.expiresIn).toBeLessThanOrEqual(300);
+      expect(options.responseContentDisposition).toBeUndefined();
+    });
+  });
+
+  describe('buildDownloadUrl', () => {
+    it('should ask storage to send the object as a named attachment', async () => {
+      await service.buildDownloadUrl('channel-1', 'abc123');
+
+      const [, , options] = presignGetObject.mock.calls[0] as [
+        string,
+        string,
+        { responseContentDisposition: string },
+      ];
+      expect(options.responseContentDisposition).toBe(
+        'attachment; filename="my holiday.mp4"',
+      );
+    });
+
+    it('should strip characters that would break the Content-Disposition header', async () => {
+      findOne.mockResolvedValue({
+        ...readyVideo,
+        original_filename: 'evil".mp4\r\nX-Injected: 1',
+      });
+
+      await service.buildDownloadUrl('channel-1', 'abc123');
+
+      const [, , options] = presignGetObject.mock.calls[0] as [
+        string,
+        string,
+        { responseContentDisposition: string },
+      ];
+      // A quote would close the quoted-string early and CRLF would split the
+      // header into two.
+      expect(options.responseContentDisposition).not.toContain('"evil"');
+      expect(options.responseContentDisposition).not.toMatch(/[\r\n]/);
+      expect(options.responseContentDisposition).toBe(
+        'attachment; filename="evil.mp4X-Injected: 1"',
+      );
+    });
+
+    it('should fall back to a placeholder when the name sanitizes to nothing', async () => {
+      findOne.mockResolvedValue({ ...readyVideo, original_filename: '""' });
+
+      await service.buildDownloadUrl('channel-1', 'abc123');
+
+      const [, , options] = presignGetObject.mock.calls[0] as [
+        string,
+        string,
+        { responseContentDisposition: string },
+      ];
+      expect(options.responseContentDisposition).toBe(
+        'attachment; filename="video"',
+      );
     });
   });
 });

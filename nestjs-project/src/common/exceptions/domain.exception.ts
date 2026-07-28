@@ -97,3 +97,19 @@ export class InvalidUploadPartsException extends DomainException {
     );
   }
 }
+
+export class VideoNotReadyException extends DomainException {
+  constructor() {
+    super('VIDEO_NOT_READY', 409, 'Video is still being processed');
+  }
+}
+
+export class VideoProcessingFailedException extends DomainException {
+  constructor() {
+    super(
+      'VIDEO_PROCESSING_FAILED',
+      409,
+      'Video could not be processed and is not deliverable',
+    );
+  }
+}
