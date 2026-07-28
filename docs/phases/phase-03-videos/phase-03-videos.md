@@ -491,6 +491,7 @@ Entregar upload de vídeos de até 10GB sem passar o byte pela API, com pré-cad
 | id | uuid | PK, generated |
 | channel_id | uuid | FK → `channels.id`, not null, on delete cascade |
 | slug | varchar(16) | unique, not null — short random public identifier (per `phase-03-videos/TD-06`) |
+| title | varchar(255) | not null — display name; optional at initiation, derived from `original_filename` when absent (see the note below) |
 | original_filename | varchar(255) | not null — declared by the client at upload initiation (per `phase-03-videos/TD-09`) |
 | declared_mime | varchar(100) | not null — declared at initiation, validated against the allowlist (per `phase-03-videos/TD-09`) |
 | declared_size_bytes | bigint | not null — declared at initiation, validated against the 10GB ceiling (per `phase-03-videos/TD-09`) |
@@ -523,7 +524,11 @@ Entregar upload de vídeos de até 10GB sem passar o byte pela API, com pré-cad
 - Video object: `{id}/source` in the private bucket `streamtube-videos` — **no extension**; the container lives in `format_name` and in the object's stored `Content-Type`.
 - Thumbnail object: `{id}/default.jpg` in the bucket `streamtube-thumbnails`, **private in this phase** (per `phase-03-videos/TD-02` revision).
 
-**Deliberately absent:** `title` and `description`. The capability in scope is *pré-cadastro automático do vídeo como rascunho*; editable video metadata is Fase 04's *Gerenciamento de Vídeos e Canal*. Adding them here would be scope not traceable to a Phase 03 capability.
+**`title` — added after the original plan, on 2026-07-28.** The first version of this Data Model left it out, arguing that editable video metadata belongs to Fase 04 and that adding it here would be scope not traceable to a Phase 03 capability. That argument was built on the capability list in `project-plan.md` alone. The challenge statement names `título` explicitly among the minimum persistence fields — *"uma entidade/tabela de vídeos ligada ao canal, com pelo menos identificação, dono (canal), **título**, status, chaves de storage do arquivo e do thumbnail, duração e metadados, e o identificador da URL única"* — so the field does have an identifiable origin, and the omission was a gap rather than a scoping decision.
+
+Kept minimal on purpose: the column is written once, at upload initiation. It is **optional in the request** — the capability in scope is the *automatic* pre-registration of the draft, so a client holding only a file must still be able to start an upload; the title is then derived from `original_filename` minus its extension, falling back to `video`. Editing it after the fact remains Fase 04's *Gerenciamento de Vídeos e Canal*, and no update endpoint ships here.
+
+**Still deliberately absent:** `description`. Nothing in the scope or in the challenge statement names it.
 
 **Migration note:** migrations are immutable and `synchronize` is never used (`.claude/rules/typeorm-migrations.md`, inherited). Both enum types are independent Postgres objects — integration tests that drop tables must drop the enum types explicitly and register them in `MANAGED_ENUM_TYPES` (`nestjs-project/CLAUDE.md` § Test Database).
 
@@ -540,6 +545,7 @@ Inicia o upload: cria a linha em `draft`/`uploading`, valida a declaração, abr
 - Authorization: Bearer {access_token}
 
 **Request body:**
+- title: string, optional — max 255; derived from `original_filename` when absent (see `#### Video` → `**title**`)
 - original_filename: string, required — max 255
 - declared_mime: string, required — must be `video/mp4` or `video/webm` (per `phase-03-videos/TD-09`)
 - declared_size_bytes: integer, required — > 0 and ≤ 10737418240 (10 GiB) (per `phase-03-videos/TD-09`)
@@ -595,6 +601,7 @@ Leitura do próprio vídeo — é o complemento observável do `202` acima: sem 
 **Response 200:**
 - id: string (uuid)
 - slug: string
+- title: string
 - original_filename: string
 - processing_status: string — `uploading` | `processing` | `ready` | `failed`
 - visibility: string — `draft`
@@ -655,6 +662,7 @@ Mesmo mecanismo do streaming, com a URL pré-assinada carregando o override de `
 
 #### Validation Rules — upload initiation e completion
 
+- `title`: optional, string, max 255, non-empty when present. Absent or blank falls back to the filename-derived value.
 - `original_filename`: required, string, max 255.
 - `declared_mime`: required, string, ∈ { `video/mp4`, `video/webm` } — allowlist único importado pela API e pelo worker de um módulo em `src/videos/` (per `phase-03-videos/TD-09`).
 - `declared_size_bytes`: required, integer, > 0, ≤ 10737418240.

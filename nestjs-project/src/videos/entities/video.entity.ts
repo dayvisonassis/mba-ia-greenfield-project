@@ -56,6 +56,17 @@ export class Video {
   @Column({ type: 'varchar', length: 16, unique: true })
   slug: string;
 
+  /**
+   * Display name of the video. Never null: when the client sends none at
+   * initiation, it is derived from the uploaded filename, so the draft created
+   * by the pre-registration is always presentable.
+   *
+   * Editing it belongs to Fase 04 (Gerenciamento de Vídeos e Canal); this phase
+   * only sets it once, at upload initiation.
+   */
+  @Column({ type: 'varchar', length: 255 })
+  title: string;
+
   @Column({ type: 'varchar', length: 255 })
   original_filename: string;
 

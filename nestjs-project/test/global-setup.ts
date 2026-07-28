@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { CreateUsersAndChannels1775687773260 } from '../src/database/migrations/1775687773260-CreateUsersAndChannels';
 import { CreateAuthTokens1777579850478 } from '../src/database/migrations/1777579850478-CreateAuthTokens';
 import { CreateVideos1785186637009 } from '../src/database/migrations/1785186637009-CreateVideos';
+import { AddVideoTitle1785209037081 } from '../src/database/migrations/1785209037081-AddVideoTitle';
 
 // Migrations are imported as classes, not globs: TypeORM glob patterns do not
 // resolve reliably inside the Jest sandbox (see .claude/rules/typeorm-migrations.md).
@@ -12,6 +13,7 @@ const MIGRATIONS = [
   CreateUsersAndChannels1775687773260,
   CreateAuthTokens1777579850478,
   CreateVideos1785186637009,
+  AddVideoTitle1785209037081,
 ];
 
 /**

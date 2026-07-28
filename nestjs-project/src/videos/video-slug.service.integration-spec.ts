@@ -59,6 +59,7 @@ describe('VideoSlugService (integration)', () => {
       videoRepository.create({
         channel_id: channelId,
         slug,
+        title: 'Test video',
         original_filename: 'clip.mp4',
         declared_mime: 'video/mp4',
         declared_size_bytes: 2048,
@@ -101,6 +102,7 @@ describe('VideoSlugService (integration)', () => {
         manager.create(Video, {
           channel_id: channel.id,
           slug,
+          title: 'Test video',
           original_filename: 'clip.mp4',
           declared_mime: 'video/mp4',
           declared_size_bytes: 2048,

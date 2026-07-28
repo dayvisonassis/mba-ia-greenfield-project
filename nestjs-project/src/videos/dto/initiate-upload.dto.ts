@@ -2,6 +2,7 @@ import {
   IsIn,
   IsInt,
   IsNotEmpty,
+  IsOptional,
   IsString,
   Max,
   MaxLength,
@@ -17,6 +18,17 @@ import {
  * class-validator decorators (per openapi-docs-nestjs/TD-01).
  */
 export class InitiateUploadDto {
+  /**
+   * Display title. Optional: the capability in scope is the *automatic*
+   * pre-registration of the draft, so a client that only has a file can still
+   * start an upload — the title is then derived from the filename.
+   */
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  title?: string;
+
   @IsString()
   @IsNotEmpty()
   @MaxLength(255)
