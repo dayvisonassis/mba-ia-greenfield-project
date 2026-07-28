@@ -8,6 +8,7 @@
  *   node scripts/run-gate.mjs                 # every gate
  *   node scripts/run-gate.mjs backend         # backend only
  *   node scripts/run-gate.mjs frontend        # frontend only
+ *   node scripts/run-gate.mjs worker          # video worker only
  *   node scripts/run-gate.mjs lint-backend    # one gate
  *   node scripts/run-gate.mjs --with-e2e      # include the backend e2e gate
  *
@@ -22,12 +23,26 @@ import { dirname, resolve } from "node:path";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-/** Ordered cheapest-first: a typecheck failure costs seconds, a suite costs minutes. */
+/**
+ * Ordered cheapest-first: a typecheck failure costs seconds, a suite costs minutes.
+ *
+ * The two `worker` gates exist because the `video-worker` container ships its
+ * own image. It shares this repo's bind mount and the `nestjs_node_modules`
+ * volume with `nestjs-api`, so a `typecheck-worker` or `lint-worker` would read
+ * byte-identical files with a byte-identical toolchain — a gate that cannot
+ * fail on its own. What the worker image does NOT share is FFmpeg, which only
+ * its Dockerfile installs; these two gates are what verifies it.
+ */
 const GATES = [
+  // First of all: sub-second, and its failure explains a whole class of later ones.
+  { id: "ffmpeg-worker",      scope: "worker",   dir: "nestjs-project", service: "video-worker",   cmd: ["ffprobe", "-version"] },
   { id: "typecheck-backend",  scope: "backend",  dir: "nestjs-project", service: "nestjs-api",     cmd: ["npx", "tsc", "--noEmit"] },
   { id: "typecheck-frontend", scope: "frontend", dir: "next-frontend",  service: "next-frontend",  cmd: ["npx", "tsc", "--noEmit"] },
   { id: "lint-backend",       scope: "backend",  dir: "nestjs-project", service: "nestjs-api",     cmd: ["npm", "run", "lint"] },
   { id: "lint-frontend",      scope: "frontend", dir: "next-frontend",  service: "next-frontend",  cmd: ["npm", "run", "lint"] },
+  // Same specs `tests-backend` runs, but executed in the image that does the
+  // work: the processor suites shell out to the real ffprobe/ffmpeg binaries.
+  { id: "tests-worker",       scope: "worker",   dir: "nestjs-project", service: "video-worker",   cmd: ["npm", "test", "--", "--runInBand", "src/videos/processors"] },
   { id: "tests-backend",      scope: "backend",  dir: "nestjs-project", service: "nestjs-api",     cmd: ["npm", "test", "--", "--runInBand"] },
   { id: "tests-frontend",     scope: "frontend", dir: "next-frontend",  service: "next-frontend",  cmd: ["npm", "test"] },
   // Opt-in: slower, and it rebuilds the test database.
@@ -47,7 +62,7 @@ const selected = GATES.filter((g) => {
 if (selected.length === 0) {
   console.error(`No gate matches "${selector}".`);
   console.error(`Known ids: ${GATES.map((g) => g.id).join(", ")}`);
-  console.error(`Scopes: backend, frontend`);
+  console.error(`Scopes: backend, frontend, worker`);
   process.exit(2);
 }
 

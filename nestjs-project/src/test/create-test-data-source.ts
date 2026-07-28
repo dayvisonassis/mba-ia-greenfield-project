@@ -31,6 +31,9 @@ export function createTestDataSource(
 export async function cleanAllTables(dataSource: DataSource): Promise<void> {
   await dataSource.query('DELETE FROM "refresh_tokens"');
   await dataSource.query('DELETE FROM "verification_tokens"');
+  // Videos before channels: the FK cascades, but deleting explicitly in
+  // dependency order keeps the helper honest about what it wipes.
+  await dataSource.query('DELETE FROM "videos"');
   await dataSource.query('DELETE FROM "channels"');
   await dataSource.query('DELETE FROM "users"');
 }

@@ -2,12 +2,16 @@ import 'dotenv/config';
 import { DataSource } from 'typeorm';
 import { CreateUsersAndChannels1775687773260 } from '../src/database/migrations/1775687773260-CreateUsersAndChannels';
 import { CreateAuthTokens1777579850478 } from '../src/database/migrations/1777579850478-CreateAuthTokens';
+import { CreateVideos1785186637009 } from '../src/database/migrations/1785186637009-CreateVideos';
 
 // Migrations are imported as classes, not globs: TypeORM glob patterns do not
 // resolve reliably inside the Jest sandbox (see .claude/rules/typeorm-migrations.md).
+// Every new migration MUST be added here — otherwise the test database silently
+// lacks its table and unrelated suites fail far from the cause.
 const MIGRATIONS = [
   CreateUsersAndChannels1775687773260,
   CreateAuthTokens1777579850478,
+  CreateVideos1785186637009,
 ];
 
 /**

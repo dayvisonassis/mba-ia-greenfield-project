@@ -19,6 +19,29 @@ services:
         condition: service_healthy
       mailpit:
         condition: service_started
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  video-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    # No ports: the worker consumes the queue and exposes no HTTP surface.
+    volumes:
+      - .:/home/node/app
+      # The SAME named volume as the API — one npm install serves both, and the
+      # worker never needs its own dependency tree because it runs the same
+      # codebase (per phase-03-videos/TD-04).
+      - nestjs_node_modules:/home/node/app/node_modules
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
 
   db:
     image: postgres:17
@@ -28,6 +51,13 @@ services:
       - POSTGRES_USER=streamtube
       - POSTGRES_PASSWORD=streamtube
       - POSTGRES_DB=streamtube
+    volumes:
+      # Without this, postgres:17 falls back to an ANONYMOUS volume: the data
+      # survives `stop`/`start` but a single `docker compose down` orphans it and
+      # the dev database is gone. A named volume survives `down` and
+      # `system prune -a`; only `down -v` / `prune --volumes` remove it, and both
+      # are explicitly destructive.
+      - streamtube_pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U streamtube"]
       interval: 5s
@@ -40,7 +70,46 @@ services:
       - "1025:1025"
       - "8025:8025"
 
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "6379:6379"
+    # AOF on: the BullMQ job queue lives entirely in Redis, so the default
+    # RDB snapshotting would silently drop every job enqueued since the last
+    # save on a restart. `appendonly yes` is what makes the queue durable.
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      # Named, not anonymous — same reasoning as streamtube_pgdata above: an
+      # anonymous volume is orphaned by a single `docker compose down`.
+      - streamtube_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio
+    ports:
+      # 9000 is the S3 API; 9001 is the web console.
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=streamtube
+      - MINIO_ROOT_PASSWORD=streamtube
+    command: ["server", "/data", "--console-address", ":9001"]
+    volumes:
+      - streamtube_miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
 volumes:
   nestjs_node_modules:
+  streamtube_pgdata:
+  streamtube_redisdata:
+  streamtube_miniodata:
 
 

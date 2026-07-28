@@ -10,21 +10,23 @@ More info in the project overview: [docs/project-plan.md](docs/project-plan.md)
 
 This is a monorepo with two main areas:
 
-- `nestjs-project/` — Backend API (NestJS 11, TypeScript, Express). Contains modules for users, channels, videos, comments, etc.
-- `docs/` — Project documentation, architecture diagrams, and planning.
-- `next-frontend/` (Next.js) — not yet initialized
+- `nestjs-project/` — Backend API (NestJS 11, TypeScript, Express) **and** the video worker: both run the same codebase from different entrypoints (`src/main.ts` / `src/worker.ts`). Contains modules for users, channels, videos, storage, mail, etc. The versioned API contract is `nestjs-project/openapi.json`.
+- `docs/` — Project documentation, architecture diagrams, planning and technical decisions.
+- `next-frontend/` — Frontend (Next.js 16, App Router). Implements the BFF model: the browser never calls the NestJS API directly.
 
 ## Architecture (C4 Container Diagram)
 
 See `docs/diagrams/software-arch.mermaid` for the full diagram. Key containers:
 
 - **Frontend** (Next.js) → calls API via REST, streams from Object Storage
-- **API** (Nest.js) → business rules, auth, reads/writes DB, uploads to storage, publishes jobs to queue, sends emails
-- **Video Worker** (FFmpeg) → consumes jobs from queue, processes videos, updates DB and storage
-- **Database** (PostgreSQL) → users, channels, videos, comments, likes
-- **Object Storage** (S3/MinIO) → video files and thumbnails
-- **Message Queue** (TBD) → video processing job queue
-- **Email Service** (SMTP) → account confirmation and password recovery
+- **API** (Nest.js) → business rules, auth, reads/writes DB, **presigns** storage URLs, publishes jobs to queue, sends emails. Video bytes never pass through it: uploads go straight to storage via presigned multipart URLs, and delivery is a `302` to a presigned GET.
+- **Video Worker** (FFmpeg) → Compose service `video-worker`, booted as a Nest *application context* (no HTTP port). Consumes the `video-processing` queue, probes metadata, cuts the thumbnail, updates DB and storage.
+- **Database** (PostgreSQL 17) → users, channels, videos, comments, likes
+- **Object Storage** (MinIO, S3-compatible) → Compose service `minio`; private buckets `streamtube-videos` and `streamtube-thumbnails`
+- **Message Queue** (Redis 8 + BullMQ) → Compose service `redis`; queue `video-processing`
+- **Email Service** (Mailpit in dev) → account confirmation and password recovery
+
+**Two storage endpoints, deliberately.** `STORAGE_ENDPOINT_INTERNAL` is the Compose service name and is what the API and worker use to talk to MinIO. `STORAGE_ENDPOINT_PUBLIC` is what a browser can reach, and is used **only** to sign URLs handed to a client — signing with the internal endpoint produces a URL nobody outside the Docker network can open.
 
 ## Docker Networking
 
@@ -71,6 +73,18 @@ Gates run cheapest-first inside their containers, stop at the first failure, and
 **Never declare a task done without having executed the gate.** Checking by hand is how the lint gate rotted to 150 errors while the Definition of Done above claimed it was required.
 
 **Never modify application code just to make a gate pass.** A red gate is a finding to report, not something to silence.
+
+## The committed OpenAPI contract
+
+`nestjs-project/openapi.json` is versioned and is what the Next.js frontend generates its client from. **Any change to the HTTP surface — a new route, a new status code, a changed DTO — must be followed by regenerating and committing it:**
+
+```bash
+docker compose exec nestjs-api npm run openapi:export
+```
+
+A stale `openapi.json` is a documentation-vs-code inconsistency, in the same family as a `CLAUDE.md` that describes code that no longer exists.
+
+**The export must run from the compiled build** (`nest build && node dist/openapi-export.js`, which is what the npm script does) — never through `ts-node`. The `@nestjs/swagger` CLI plugin that infers request-DTO schemas from their `class-validator` decorators is declared in `nest-cli.json`, so it only applies to code compiled by `nest build`/`nest start`. Running the exporter under ts-node produces a spec that looks fine but whose request bodies are **empty objects**, and nothing fails to warn you.
 
 
 ## Git Conventions

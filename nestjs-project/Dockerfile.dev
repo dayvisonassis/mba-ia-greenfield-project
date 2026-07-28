@@ -1,6 +1,11 @@
 FROM node:25.6.0-slim
 
-RUN apt update && apt install -y procps curl
+# ffmpeg brings ffprobe too. It is installed here, not only in the worker
+# image, because the test suite runs inside THIS container and the project
+# forbids mocking what Compose runs for real — without the binary the video
+# processing tests could only mock child_process, and TD-09's acceptance rule
+# (ffprobe is the authoritative gate) would be untestable where it matters.
+RUN apt update && apt install -y procps curl ffmpeg
 
 WORKDIR /home/node/app
 

@@ -48,3 +48,68 @@ export class TokenReuseDetectedException extends DomainException {
     );
   }
 }
+
+// --- Videos (phase 03) ---
+
+export class UnsupportedVideoFormatException extends DomainException {
+  constructor(declaredMime: string) {
+    super(
+      'UNSUPPORTED_VIDEO_FORMAT',
+      400,
+      `Unsupported video format: ${declaredMime}`,
+    );
+  }
+}
+
+export class VideoTooLargeException extends DomainException {
+  constructor() {
+    super('VIDEO_TOO_LARGE', 400, 'Video exceeds the maximum allowed size');
+  }
+}
+
+/**
+ * Deliberately the same response for "no such video" and "not yours" — a 403
+ * would confirm the resource exists and let a caller enumerate other channels'
+ * slugs (per phase-03-videos/TD-07 revision).
+ */
+export class VideoNotFoundException extends DomainException {
+  constructor() {
+    super('VIDEO_NOT_FOUND', 404, 'Video not found');
+  }
+}
+
+export class InvalidUploadStateException extends DomainException {
+  constructor() {
+    super(
+      'INVALID_UPLOAD_STATE',
+      409,
+      'Upload cannot be completed from the current processing status',
+    );
+  }
+}
+
+export class InvalidUploadPartsException extends DomainException {
+  constructor() {
+    super(
+      'INVALID_UPLOAD_PARTS',
+      409,
+      'Storage rejected the reported parts — a part is missing or its ETag does not match',
+    );
+  }
+}
+
+export class VideoNotReadyException extends DomainException {
+  constructor() {
+    super('VIDEO_NOT_READY', 409, 'Video is still being processed');
+  }
+}
+
+export class VideoProcessingFailedException extends DomainException {
+  constructor() {
+    super(
+      'VIDEO_PROCESSING_FAILED',
+      409,
+      'Video could not be processed and is not deliverable',
+    );
+  }
+}

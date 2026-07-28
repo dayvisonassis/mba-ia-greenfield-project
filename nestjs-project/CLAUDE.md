@@ -34,11 +34,29 @@ docker compose exec nestjs-api npm run start:dev
 Services:
 - `nestjs-api` — NestJS API, port `3000`
 - `db` — PostgreSQL 17, port `5432`, databases `streamtube` (dev) and `streamtube_test` (tests), user/password `streamtube`
+- `redis` — Redis 8, port `6379`, AOF enabled — backs the `video-processing` BullMQ queue
+- `minio` — S3-compatible object storage, API on `9000` and console on `9001`, buckets `streamtube-videos` and `streamtube-thumbnails` (both private)
+- `video-worker` — consumes the `video-processing` queue. **No HTTP port**: it boots as a Nest application *context*, not a server. Runs the same codebase as the API from `Dockerfile.worker`, sharing the `nestjs_node_modules` volume, so one `npm install` serves both.
 
-**`node_modules` is a named volume, not part of the bind mount.** Reading it through the Windows bind mount costs ~12s just to `require('@nestjs/core')` (vs ~200ms from the container filesystem), which made every Jest file take ~25s. Two consequences:
+**FFmpeg lives in both images.** `Dockerfile.worker` needs `ffmpeg`/`ffprobe` to do the work; `Dockerfile.dev` needs them because the test suite runs inside `nestjs-api` and the project forbids mocking what Compose runs for real.
+
+```bash
+# Start the worker (watch mode) — same on-demand pattern as the API
+docker compose exec -d video-worker npm run start:worker
+```
+
+**Two named volumes back this stack** — neither lives in the bind mount:
+
+| Volume | Mounted at | Why |
+|---|---|---|
+| `nestjs_node_modules` | `/home/node/app/node_modules` | Reading it through the Windows bind mount costs ~12s just to `require('@nestjs/core')` (vs ~200ms from the container filesystem), which made every Jest file take ~25s |
+| `streamtube_pgdata` | `/var/lib/postgresql/data` | Without it Postgres falls back to an **anonymous** volume, and a single `docker compose down` orphans the dev database |
+
+Consequences:
 
 - `node_modules` is **not visible on the host** — every `npm`/`npx` command must run inside the container (already the rule below).
-- After changing `package.json`, run `docker compose exec nestjs-api npm install` to update the volume. `docker compose down -v` wipes it and requires a reinstall.
+- After changing `package.json`, run `docker compose exec nestjs-api npm install` to update the volume.
+- Database data survives `docker compose down` and `docker system prune -a`. It is destroyed by **`docker compose down -v`** and **`docker volume prune`/`system prune --volumes`** — both explicitly destructive. Back up first with `docker compose exec -T db pg_dump -U streamtube -d streamtube > backup.sql`.
 
 All verification and teardown commands run on the **host machine**:
 
@@ -65,6 +83,7 @@ docker compose down
 
 ```bash
 npm run start:dev                        # Dev server with hot-reload
+npm run start:worker                     # Video worker (run in the video-worker container, not nestjs-api)
 npm run build                            # Compile to dist/
 npm run start:prod                       # Run compiled build
 
